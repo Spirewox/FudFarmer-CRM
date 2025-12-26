@@ -11,32 +11,34 @@ import Compensations from './components/Compensations';
 import Login from './components/Login';
 import Settings from './components/Settings';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ToastContainer } from 'react-toastify';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { isAuthenticated } = useAuth();
-    if (!isAuthenticated) {
+    const { isAuthenticated , loading} = useAuth();
+    if (!isAuthenticated && !loading) {
         return <Navigate to="/login" replace />;
     }
     return <>{children}</>;
 };
 
 const AppRoutes = () => {
-    const { isAuthenticated } = useAuth();
 
-    // Theme Initialization
-    useEffect(() => {
-        const theme = localStorage.getItem('fudfarmer_theme');
-        if (theme === 'dark') {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    }, []);
-    
-    return (
-      <HashRouter>
+  // Theme Initialization
+  useEffect(() => {
+      const theme = localStorage.getItem('fudfarmer_theme');
+      if (theme === 'dark') {
+          document.documentElement.classList.add('dark');
+      } else {
+          document.documentElement.classList.remove('dark');
+      }
+  }, []);
+  
+  return (
+    <HashRouter>
+      <AuthProvider>
+        <ToastContainer />
         <Routes>
-          <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+          <Route path="/login" element={<Login />} />
           
           <Route path="/" element={
             <ProtectedRoute>
@@ -52,15 +54,15 @@ const AppRoutes = () => {
             <Route path="settings" element={<Settings />} />
           </Route>
         </Routes>
-      </HashRouter>
-    );
+      </AuthProvider>
+      
+    </HashRouter>
+  );
 };
 
 function App() {
   return (
-    <AuthProvider>
-        <AppRoutes />
-    </AuthProvider>
+    <AppRoutes />
   );
 }
 

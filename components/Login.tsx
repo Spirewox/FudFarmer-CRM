@@ -1,41 +1,32 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, FormEvent } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { StorageService } from '../services/storageService';
-import { Agent } from '../types';
+import { toast } from "react-toastify";
 import { Lock, User, ArrowRight, ShieldCheck } from 'lucide-react';
+import { axiosPost } from '@/lib/api';
+import { Input } from './ui/Input';
 
 const Login: React.FC = () => {
   const { login } = useAuth();
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgentId, setSelectedAgentId] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    setAgents(StorageService.getAgents());
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
 
     try {
-      if (!selectedAgentId) {
-        setError('Please select a user account.');
-        setLoading(false);
-        return;
-      }
-
-      const success = await login(selectedAgentId, password);
-      if (!success) {
-        setError('Invalid password. Try "password".');
-      }
-    } catch (err) {
-      setError('Failed to log in.');
-    } finally {
+      e.preventDefault();
+      setLoading(true);
+      const result = await axiosPost('auth/login',{email, password}, true)
+      login(result.user)
+      
+      toast.success("Login successful!");
+      
+    } catch (error) {
+      console.log(error)
+      toast.error("Login failed. Please check your credentials.");
+    }finally{
       setLoading(false);
     }
   };
@@ -53,23 +44,20 @@ const Login: React.FC = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-                <label className="text-sm font-medium leading-none">Select Account</label>
+                <label className="text-sm font-medium leading-none">Email</label>
                 <div className="relative">
-                    <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <select
-                        className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 pl-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={selectedAgentId}
-                        onChange={(e) => setSelectedAgentId(e.target.value)}
-                    >
-                        <option value="" disabled>Choose your profile</option>
-                        {agents.map(agent => (
-                            <option key={agent.id} value={agent.id}>
-                                {agent.name} ({agent.role})
-                            </option>
-                        ))}
-                    </select>
-                </div>
-            </div>
+                    <div className="space-y-2">
+                      <Input
+                        id="email"
+                        type="email"
+                        placeholder="admin@fudfarmer.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                      />
+                    </div>
+                        </div>
+                    </div>
 
             <div className="space-y-2">
                 <label className="text-sm font-medium leading-none">Password</label>

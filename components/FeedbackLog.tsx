@@ -5,36 +5,56 @@ import { StorageService } from '../services/storageService';
 import { GeminiService } from '../services/geminiService';
 import { MessageSquare, ThumbsUp, ThumbsDown, Minus, Loader, BarChart3, PieChart as PieIcon, Plus, Filter, CheckCircle2, XCircle, Search, Calendar, User, ArrowRight, Clock, Gift, Banknote } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { IFeedback, ValidFeedBackSentiment, ValidFeedBackStatus, ValidFeedbackTypes } from '@/interface/feedback.interface';
+import { useCustomerList } from '@/hooks/useCustomers';
+import { useFeedbackAnalytics, useFeedbackList } from '@/hooks/useFeedbackQueries';
+import { ICustomer } from '@/interface/customer.interface';
+import { ICompensation, ValidCompensationStatus, ValidCompensationType } from '@/interface/compensation.interface';
+import { toast } from 'react-toastify';
+import { axiosPatch, axiosPost } from '@/lib/api';
 
 const FeedbackLog: React.FC = () => {
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customer, setCustomer] = useState<string | null>(null)
   
   // UI State
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null); // For "Attending" to feedback
+  const [selectedFeedback, setSelectedFeedback] = useState<IFeedback | null>(null); // For "Attending" to feedback
   
   // Filter State
-  const [filterStatus, setFilterStatus] = useState<'All' | 'Open' | 'Resolved'>('All');
-  const [filterType, setFilterType] = useState<FeedbackType | 'All'>('All');
+  const [filterStatus, setFilterStatus] = useState<'All' | ValidFeedBackStatus>('All');
+  const [filterType, setFilterType] = useState<ValidFeedbackTypes | 'All'>('All');
   const [searchTerm, setSearchTerm] = useState('');
 
   // Form State (New Feedback)
   const [newContent, setNewContent] = useState('');
-  const [newType, setNewType] = useState<FeedbackType>(FeedbackType.COMPLAINT);
+  const [newType, setNewType] = useState<ValidFeedbackTypes>(ValidFeedbackTypes.complaint);
   const [newCustomerName, setNewCustomerName] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Resolution State
   const [resolutionNote, setResolutionNote] = useState('');
 
   // Compensation Modal State
   const [showCompModal, setShowCompModal] = useState(false);
-  const [compData, setCompData] = useState<Partial<Compensation>>({
-      status: 'Pending',
-      category: CompensationCategory.PRODUCT
+  const [compData, setCompData] = useState<Partial<ICompensation>>({
+    status: ValidCompensationStatus.pending,
+    category: ValidCompensationType.product
   });
+
+  const {data : feedbackList, isLoading : feedbackListLoading, refetch : refetchFeedbackList} = useFeedbackList({
+    search  : searchTerm,
+    status : filterStatus == "All" ? "" : filterStatus,
+    type : filterType == "All" ? "" : filterType
+  })
+
+  const {data : feedbackAnalytics, isLoading : analyticsLoading, refetch : refetchAnalytics} = useFeedbackAnalytics()
+
+  const {data : customersList} = useCustomerList({
+    customer_location : ""
+  })
 
   useEffect(() => {
     setFeedbacks(StorageService.getFeedback());
@@ -42,109 +62,83 @@ const FeedbackLog: React.FC = () => {
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newContent || !newCustomerName) return;
+    try {
+        setIsSubmitting(true)
+        e.preventDefault();
+        if (!newContent || !customer) return;
 
-    setIsAnalyzing(true);
-    const sentiment = await GeminiService.analyzeSentiment(newContent);
-    setIsAnalyzing(false);
 
-    const newFeedback: Feedback = {
-      id: StorageService.generateId(),
-      customerId: '0', 
-      customerName: newCustomerName,
-      type: newType,
-      content: newContent,
-      date: new Date().toISOString().split('T')[0],
-      status: 'Open',
-      sentiment: sentiment,
-    };
-
-    const updated = [newFeedback, ...feedbacks];
-    setFeedbacks(updated);
-    StorageService.saveFeedback(updated);
+        const newFeedback: IFeedback = {
+        customer,
+        type: newType,
+        content: newContent,
+        };
+        await axiosPost('feedbacks',newFeedback,true)
+        refetchFeedbackList()
+        // Reset and Close
+        setNewContent('');
+        setNewCustomerName('');
+        setShowAddModal(false);
+    } catch (error) {
+        toast.error(error.message)
+    }finally{
+        setIsSubmitting(false)
+    }
     
-    // Reset and Close
-    setNewContent('');
-    setNewCustomerName('');
-    setShowAddModal(false);
   };
 
-  const handleResolve = () => {
-    if (!selectedFeedback) return;
-
-    const updated = feedbacks.map(f => {
-        if (f.id === selectedFeedback.id) {
-            return {
-                ...f,
-                status: 'Resolved' as const,
-                resolutionNote: resolutionNote,
-                resolvedDate: new Date().toISOString().split('T')[0]
-            };
-        }
-        return f;
-    });
-
-    setFeedbacks(updated);
-    StorageService.saveFeedback(updated);
-    setSelectedFeedback(null); // Close modal
-    setResolutionNote('');
+  const handleResolve = async () => {
+    try {
+        setIsSubmitting(true)
+        if (!selectedFeedback) return;
+        await axiosPatch(`feedbacks/${selectedFeedback._id}/resolve`,{resolution : resolutionNote},true)
+        refetchFeedbackList()
+        setSelectedFeedback(null); // Close modal
+        setResolutionNote('');
+    } catch (error) {
+        toast.error(error.message)
+    }finally{
+        setIsSubmitting(false)
+    }
   };
 
-  const handleOpenComp = () => {
+  const handleOpenComp = async() => {
     if(!selectedFeedback) return;
     setCompData({
-        customerName: selectedFeedback.customerName,
-        customerId: selectedFeedback.customerId,
+        customer : selectedFeedback.customer,
         reason: `Ref: ${selectedFeedback.type} - ${selectedFeedback.content.substring(0, 20)}...`,
-        amount: 0,
-        status: 'Pending',
-        category: CompensationCategory.PRODUCT
+        value: 0,
+        status: ValidCompensationStatus.pending,
+        category: ValidCompensationType.product
     });
     setShowCompModal(true);
   };
+  const handleSaveComp = async() => {
+    try {
+        if (!compData.value || !compData.customer) return;
 
-  const handleSaveComp = () => {
-    if (!compData.amount || !compData.customerName) return;
-    
-    const allComps = StorageService.getCompensations();
-    const newComp: Compensation = {
-        id: StorageService.generateId(),
-        customerId: compData.customerId || '0',
-        customerName: compData.customerName,
-        reason: compData.reason || '',
-        amount: Number(compData.amount),
-        date: new Date().toISOString().split('T')[0],
-        status: compData.status as any,
-        category: compData.category as any,
-    };
-    
-    StorageService.saveCompensations([newComp, ...allComps]);
-    setShowCompModal(false);
-    
-    // Auto-append to resolution note
-    setResolutionNote(prev => {
-        const note = `[System] Compensation of ₦${newComp.amount.toLocaleString()} issued.`;
-        return prev ? `${prev}\n${note}` : note;
-    });
+        await axiosPost(`compensations`,{customer : (compData.customer as ICustomer)._id,category : compData.category, reason : compData.reason, status : compData.status,value : compData.value},true)
+        refetchFeedbackList()
+        setShowCompModal(false);
+        setResolutionNote(prev => {
+            const note = `[System] Compensation of ₦${compData.value.toLocaleString()} issued.`;
+            return prev ? `${prev}\n${note}` : note;
+        });
+    } catch (error) {
+        toast.error(error.message)
+    }finally{
+        setIsSubmitting(false)
+    }
   };
 
-  const getSentimentIcon = (sentiment?: Sentiment) => {
+  const getSentimentIcon = (sentiment?: ValidFeedBackSentiment) => {
     switch (sentiment) {
-      case Sentiment.POSITIVE: return <ThumbsUp size={14} className="text-green-500" />;
-      case Sentiment.NEGATIVE: return <ThumbsDown size={14} className="text-red-500" />;
+      case ValidFeedBackSentiment.positive: return <ThumbsUp size={14} className="text-green-500" />;
+      case ValidFeedBackSentiment.negative: return <ThumbsDown size={14} className="text-red-500" />;
       default: return <Minus size={14} className="text-muted-foreground" />;
     }
   };
 
-  // Filtered Data
-  const filteredFeedbacks = feedbacks.filter(f => {
-    const matchStatus = filterStatus === 'All' || f.status === filterStatus;
-    const matchType = filterType === 'All' || f.type === filterType;
-    const matchSearch = f.customerName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        f.content.toLowerCase().includes(searchTerm.toLowerCase());
-    return matchStatus && matchType && matchSearch;
-  });
 
   // Analytics Data
   const sentimentData = useMemo(() => {
@@ -204,9 +198,9 @@ const FeedbackLog: React.FC = () => {
               <div className="flex-1 p-4">
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                    <Pie data={sentimentData} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value" stroke="hsl(var(--card))">
-                        {sentimentData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.name === 'Positive' ? '#22c55e' : entry.name === 'Negative' ? '#ef4444' : '#9ca3af'} />
+                    <Pie data={feedbackAnalytics.sentiments} cx="50%" cy="50%" innerRadius={40} outerRadius={70} paddingAngle={5} dataKey="value" stroke="hsl(var(--card))">
+                        {feedbackAnalytics.sentiments.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.name == 'Positive' ? '#22c55e' : entry.name == 'Negative' ? '#ef4444' : '#9ca3af'} />
                         ))}
                     </Pie>
                     <Tooltip contentStyle={{ backgroundColor: 'hsl(var(--popover))', borderColor: 'hsl(var(--border))', borderRadius: 'var(--radius)' }} itemStyle={{ color: 'hsl(var(--popover-foreground))' }}/>
@@ -221,9 +215,9 @@ const FeedbackLog: React.FC = () => {
                 <h3 className="font-semibold leading-none tracking-tight">Complaints by Segment</h3>
               </div>
               <div className="flex-1 p-4">
-                {complaintsBySegmentData.length > 0 ? (
+                {feedbackAnalytics?.complaintsBySegment?.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={complaintsBySegmentData} layout="vertical" margin={{ left: 10 }}>
+                    <BarChart data={feedbackAnalytics?.complaintsBySegment} layout="vertical" margin={{ left: 10 }}>
                         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
                         <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))'}}/>
                         <YAxis dataKey="name" type="category" width={90} tick={{fontSize: 10, fill: 'hsl(var(--muted-foreground))'}} axisLine={false} tickLine={false}/>
@@ -249,11 +243,10 @@ const FeedbackLog: React.FC = () => {
                     <select 
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value as any)}
-                        className="bg-transparent border-none text-sm font-medium focus:outline-none"
+                        className="bg-transparent border-none text-sm font-medium focus:outline-none capitalize"
                     >
                         <option value="All">All Status</option>
-                        <option value="Open">Open</option>
-                        <option value="Resolved">Resolved</option>
+                        {Object.values(ValidFeedBackStatus).map(t => <option className="capitalize" key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
                 <div className="flex items-center gap-2 border rounded-md px-3 py-1.5 bg-background">
@@ -261,10 +254,10 @@ const FeedbackLog: React.FC = () => {
                     <select 
                         value={filterType}
                         onChange={(e) => setFilterType(e.target.value as any)}
-                        className="bg-transparent border-none text-sm font-medium focus:outline-none"
+                        className="bg-transparent border-none text-sm font-medium focus:outline-none capitalize"
                     >
                         <option value="All">All Types</option>
-                        {Object.values(FeedbackType).map(t => <option key={t} value={t}>{t}</option>)}
+                        {Object.values(ValidFeedbackTypes).map(t => <option className="capitalize" key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
             </div>
@@ -284,7 +277,8 @@ const FeedbackLog: React.FC = () => {
         {/* Feedback List */}
         <div className="rounded-md border bg-card text-card-foreground shadow-sm">
             <div className="relative w-full overflow-auto">
-                <table className="w-full caption-bottom text-sm">
+                {feedbackListLoading ? <FeedbackSkeleton/> : (
+                    <table className="w-full caption-bottom text-sm">
                 <thead className="[&_tr]:border-b">
                     <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
                         <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Date</th>
@@ -296,34 +290,34 @@ const FeedbackLog: React.FC = () => {
                     </tr>
                 </thead>
                 <tbody className="[&_tr:last-child]:border-0">
-                    {filteredFeedbacks.map((item) => (
+                    {feedbackList?.map((item) => (
                     <tr 
-                        key={item.id} 
+                        key={item._id} 
                         onClick={() => setSelectedFeedback(item)}
                         className="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                     >
-                        <td className="p-4 align-middle whitespace-nowrap text-muted-foreground text-xs">{item.date}</td>
-                        <td className="p-4 align-middle font-medium">{item.customerName}</td>
+                        <td className="p-4 align-middle whitespace-nowrap text-muted-foreground text-xs">{new Date(item.createdAt).toLocaleString()}</td>
+                        <td className="p-4 align-middle font-medium">{(item?.customer as ICustomer)?.customer_name}</td>
                         <td className="p-4 align-middle max-w-[180px] truncate text-muted-foreground" title={item.content}>{item.content}</td>
                         <td className="p-4 align-middle">
                             <div className="flex gap-2">
-                                <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium border ${
-                                    item.type === FeedbackType.COMPLAINT ? 'border-red-200 bg-red-50 text-red-700' :
-                                    item.type === FeedbackType.SUGGESTION ? 'border-yellow-200 bg-yellow-50 text-yellow-700' :
+                                <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium border capitalize ${
+                                    item.type === ValidFeedbackTypes.complaint ? 'border-red-200 bg-red-50 text-red-700' :
+                                    item.type === ValidFeedbackTypes.suggestion ? 'border-yellow-200 bg-yellow-50 text-yellow-700' :
                                     'border-green-200 bg-green-50 text-green-700'
                                 }`}>
                                     {item.type}
                                 </span>
-                                <span className="inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium bg-muted">
+                                <span className="inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs font-medium bg-muted capitalize">
                                     {getSentimentIcon(item.sentiment)} {item.sentiment}
                                 </span>
                             </div>
                         </td>
                         <td className="p-4 align-middle">
-                             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                item.status === 'Resolved' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                             <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
+                                item.status === ValidFeedBackStatus.resolved ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
                              }`}>
-                                {item.status === 'Resolved' ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
+                                {item.status === ValidFeedBackStatus.resolved ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
                                 {item.status}
                              </span>
                         </td>
@@ -334,11 +328,13 @@ const FeedbackLog: React.FC = () => {
                         </td>
                     </tr>
                     ))}
-                    {filteredFeedbacks.length === 0 && (
+                    {feedbackList?.length === 0 && (
                         <tr><td colSpan={6} className="p-8 text-center text-muted-foreground">No records found matching your filters.</td></tr>
                     )}
                 </tbody>
                 </table>
+                )}
+                
             </div>
         </div>
       </div>
@@ -354,19 +350,22 @@ const FeedbackLog: React.FC = () => {
              <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">Customer Name</label>
-                    <input
-                        type="text"
-                        value={newCustomerName}
-                        onChange={(e) => setNewCustomerName(e.target.value)}
-                        className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        placeholder="Who is this from?"
-                        required
-                    />
+                    <div className="relative">
+                        <User size={14} className="absolute left-3 top-3 text-muted-foreground"/>
+                        <select 
+                            className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 pl-9 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" 
+                            value={customer || ""}
+                            onChange={(e) => setCustomer(e.target.value as any)}
+                        >
+                            <option value="">-- Select Customer --</option>
+                            {customersList?.map(t => <option key={t._id} value={t._id}>{t.customer_name}</option>)}
+                        </select>
+                    </div>
                 </div>
                 <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">Type</label>
                     <div className="flex gap-2">
-                    {Object.values(FeedbackType).map((type) => (
+                    {Object.values(ValidFeedbackTypes).map((type) => (
                         <button
                         key={type}
                         type="button"
@@ -391,11 +390,11 @@ const FeedbackLog: React.FC = () => {
                 <div className="flex justify-end pt-2">
                     <button
                         type="submit"
-                        disabled={isAnalyzing}
+                        disabled={isSubmitting}
                         className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-10 px-8 py-2"
                     >
-                        {isAnalyzing ? <Loader className="animate-spin mr-2" size={16}/> : <MessageSquare size={16} className="mr-2" />}
-                        {isAnalyzing ? 'Analyzing...' : 'Save Feedback'}
+                        {isSubmitting ? <Loader className="animate-spin mr-2" size={16}/> : <MessageSquare size={16} className="mr-2" />}
+                        {isSubmitting ? 'Submitting...' : 'Save Feedback'}
                     </button>
                 </div>
              </form>
@@ -411,18 +410,18 @@ const FeedbackLog: React.FC = () => {
                     <div>
                         <div className="flex items-center gap-2 mb-1">
                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                selectedFeedback.status === 'Resolved' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                                selectedFeedback.status === ValidFeedBackStatus.resolved ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
                              }`}>
-                                {selectedFeedback.status === 'Resolved' ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
+                                {selectedFeedback.status === ValidFeedBackStatus.resolved ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
                                 {selectedFeedback.status}
                              </span>
-                             <span className="text-sm text-muted-foreground">{selectedFeedback.date}</span>
+                             <span className="text-sm text-muted-foreground">{new Date(selectedFeedback.createdAt).toLocaleString()}</span>
                         </div>
-                        <h2 className="text-xl font-bold tracking-tight">{selectedFeedback.customerName}</h2>
+                        <h2 className="text-xl font-bold tracking-tight">{(selectedFeedback.customer as ICustomer).customer_name}</h2>
                         <div className="flex items-center gap-2 mt-2">
                              <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium border ${
-                                    selectedFeedback.type === FeedbackType.COMPLAINT ? 'border-red-200 bg-red-50 text-red-700' :
-                                    selectedFeedback.type === FeedbackType.SUGGESTION ? 'border-yellow-200 bg-yellow-50 text-yellow-700' :
+                                    selectedFeedback.type === ValidFeedbackTypes.complaint ? 'border-red-200 bg-red-50 text-red-700' :
+                                    selectedFeedback.type === ValidFeedbackTypes.suggestion ? 'border-yellow-200 bg-yellow-50 text-yellow-700' :
                                     'border-green-200 bg-green-50 text-green-700'
                              }`}>
                                     {selectedFeedback.type}
@@ -448,7 +447,7 @@ const FeedbackLog: React.FC = () => {
                             <CheckCircle2 size={14}/> Resolution & Actions
                         </label>
                         
-                        {selectedFeedback.status === 'Open' ? (
+                        {selectedFeedback.status === ValidFeedBackStatus.open ? (
                             <div className="bg-card border rounded-lg p-4 space-y-4 shadow-sm">
                                 <p className="text-sm text-muted-foreground">Record the steps taken to address this feedback (e.g., called customer, issued refund, etc).</p>
                                 <textarea
@@ -484,11 +483,11 @@ const FeedbackLog: React.FC = () => {
                         ) : (
                             <div className="bg-green-50 border border-green-100 rounded-lg p-4 space-y-2">
                                 <div className="flex justify-between items-center">
-                                    <span className="text-sm font-bold text-green-800">Resolved on {selectedFeedback.resolvedDate}</span>
+                                    <span className="text-sm font-bold text-green-800">Resolved on {new Date(selectedFeedback.resolution_date).toLocaleString()}</span>
                                     <CheckCircle2 size={16} className="text-green-600"/>
                                 </div>
                                 <p className="text-sm text-green-700">
-                                    {selectedFeedback.resolutionNote || "No resolution note recorded."}
+                                    {selectedFeedback.resolution || "No resolution note recorded."}
                                 </p>
                             </div>
                         )}
@@ -506,12 +505,12 @@ const FeedbackLog: React.FC = () => {
                 <div className="space-y-4">
                      <div className="space-y-2">
                          <label className="text-sm font-medium leading-none">Customer</label>
-                         <input type="text" disabled value={compData.customerName || ''} className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground" />
+                         <input type="text" disabled value={(compData.customer as ICustomer).customer_name || ''} className="flex h-10 w-full rounded-md border border-input bg-muted px-3 py-2 text-sm text-muted-foreground" />
                      </div>
                      <div className="space-y-2">
                         <label className="text-sm font-medium leading-none">Type</label>
                         <div className="grid grid-cols-2 gap-2">
-                            {Object.values(CompensationCategory).map((cat) => (
+                            {Object.values(ValidCompensationType).map((cat) => (
                                 <button
                                 key={cat}
                                 onClick={() => setCompData({...compData, category: cat})}
@@ -536,8 +535,8 @@ const FeedbackLog: React.FC = () => {
                             <label className="text-sm font-medium leading-none">Amount (₦)</label>
                             <input 
                                 type="number" 
-                                value={compData.amount || ''} 
-                                onChange={(e) => setCompData({...compData, amount: parseInt(e.target.value)})}
+                                value={compData.value || ''} 
+                                onChange={(e) => setCompData({...compData, value: parseInt(e.target.value)})}
                                 className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                             />
                         </div>
@@ -546,11 +545,9 @@ const FeedbackLog: React.FC = () => {
                             <select 
                                 value={compData.status} 
                                 onChange={(e) => setCompData({...compData, status: e.target.value as any})}
-                                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                                className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring capitalize"
                             >
-                                <option value="Pending">Pending</option>
-                                <option value="Approved">Approved</option>
-                                <option value="Paid">Paid</option>
+                                {Object.values(ValidCompensationStatus).map(t => <option className="capitalize" key={t} value={t}>{t}</option>)}
                             </select>
                         </div>
                      </div>
@@ -567,3 +564,58 @@ const FeedbackLog: React.FC = () => {
 };
 
 export default FeedbackLog;
+
+
+const FeedbackSkeleton = ()=>{
+    return(<table className="w-full caption-bottom text-sm">
+  <thead className="[&_tr]:border-b">
+    <tr>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <th key={i} className="h-12 px-4 text-left align-middle">
+          <div className="h-4 w-20 bg-muted rounded animate-pulse" />
+        </th>
+      ))}
+    </tr>
+  </thead>
+
+  <tbody>
+    {Array.from({ length: 6 }).map((_, rowIdx) => (
+      <tr key={rowIdx} className="border-b">
+        {/* Date */}
+        <td className="p-4">
+          <div className="h-3 w-28 bg-muted rounded animate-pulse" />
+        </td>
+
+        {/* Customer */}
+        <td className="p-4">
+          <div className="h-4 w-32 bg-muted rounded animate-pulse" />
+        </td>
+
+        {/* Content */}
+        <td className="p-4">
+          <div className="h-3 w-full max-w-[180px] bg-muted rounded animate-pulse" />
+        </td>
+
+        {/* Type & Sentiment */}
+        <td className="p-4">
+          <div className="flex gap-2">
+            <div className="h-5 w-20 rounded bg-muted animate-pulse" />
+            <div className="h-5 w-24 rounded bg-muted animate-pulse" />
+          </div>
+        </td>
+
+        {/* Status */}
+        <td className="p-4">
+          <div className="h-5 w-24 rounded-full bg-muted animate-pulse" />
+        </td>
+
+        {/* Action */}
+        <td className="p-4 text-right">
+          <div className="h-4 w-14 ml-auto bg-muted rounded animate-pulse" />
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+)
+}

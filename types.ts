@@ -1,3 +1,5 @@
+import { QueryObserverResult, RefetchOptions } from "@tanstack/react-query";
+import { IUser } from "./contexts/AuthContext";
 
 
 export enum CustomerType {
@@ -156,9 +158,12 @@ export interface Enquiry {
 }
 
 export interface AuthContextType {
-  user: Agent | null;
-  login: (agentId: string, password: string) => Promise<boolean>;
+  user: IUser | null;
+  login: (user: IUser) => void;
   logout: () => void;
-  updateProfile: (updates: Partial<Agent>) => Promise<void>;
+  loading: boolean;
+  isRefetching : boolean;
+  error : boolean,
+  refetch : (options?: RefetchOptions) => Promise<QueryObserverResult<IUser, Error>>,
   isAuthenticated: boolean;
 }

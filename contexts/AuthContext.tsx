@@ -2,59 +2,68 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { Agent, AuthContextType } from '../types';
 import { StorageService } from '../services/storageService';
+import { useWhoAmI } from '@/hooks/useQueries';
+import { useNavigate } from 'react-router-dom';
+import { axiosPost } from '@/lib/api';
+
+export enum ValidUserRole{
+  sales_agent = "sales agent",
+  admin  = "admin"
+}
+
+export interface IUser {
+  _id : string
+  full_name: string;
+  email: string;
+  phone: string;
+  role: ValidUserRole;
+  location: string;
+  password: string;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<Agent | null>(null);
+  const [localUser, setLocalUser] = useState<IUser | null>(null);
+  const [prevState, setPrevState] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  const navigate = useNavigate();
+
+  const {
+    data : user,
+    isLoading,
+    isRefetching,
+    isError,
+    refetch
+  } = useWhoAmI();
+  
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem('fudfarmer_user_id');
-    if (storedUserId) {
-      const agents = StorageService.getAgents();
-      const found = agents.find(a => a.id === storedUserId);
-      if (found) setUser(found);
+    if (user){
+      setLoading(false)
+      setLocalUser(user); // sync when fetched
     }
-  }, []);
-
-  const login = async (agentId: string, password: string) => {
-    const agents = StorageService.getAgents();
-    const agent = agents.find(a => a.id === agentId);
-    
-    // Simple password check (in real app, use hashing and backend)
-    // For demo: default password for everyone is 'password' if not set
-    const actualPassword = agent?.password || 'password';
-
-    if (agent && password === actualPassword) {
-      setUser(agent);
-      localStorage.setItem('fudfarmer_user_id', agent.id);
-      return true;
+    if(isError){
+      setLoading(false)
     }
-    return false;
+  }, [user,navigate,isError]);
+
+
+  const login = async (user :  IUser) => {
+    setLocalUser(user)
+    await refetch()
+    navigate(prevState ? prevState : "/")
   };
 
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('fudfarmer_user_id');
-  };
-
-  const updateProfile = async (updates: Partial<Agent>) => {
-    if (!user) return;
-    
-    // Merge updates
-    const updatedUser = { ...user, ...updates };
-    
-    // Update Local State
-    setUser(updatedUser);
-    
-    // Update Persistent Storage
-    const agents = StorageService.getAgents();
-    const updatedAgents = agents.map(a => a.id === user.id ? updatedUser : a);
-    StorageService.saveAgents(updatedAgents);
+  const logout = async () => {
+    await axiosPost('auth/logout',{}, true)
+    navigate("/login");
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, updateProfile, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, login,isRefetching, logout,loading: loading,
+        error : isError, isAuthenticated: !!user,refetch }}>
       {children}
     </AuthContext.Provider>
   );

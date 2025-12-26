@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StorageService } from '../services/storageService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Users, AlertTriangle, Wallet, TrendingUp } from 'lucide-react';
+import { useDashboardMetrics } from '@/hooks/useQueries';
 
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState({
@@ -50,6 +51,9 @@ const Dashboard: React.FC = () => {
 
   }, []);
 
+  const {data : dashmet} = useDashboardMetrics()
+  console.log(dashmet)
+
   const COLORS = ['#ef4444', '#f59e0b', '#22c55e'];
 
   return (
@@ -62,10 +66,10 @@ const Dashboard: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { title: "Total Customers", value: stats.totalCustomers, icon: <Users className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Active Leads", value: stats.activeLeads, icon: <TrendingUp className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Pipeline Value", value: `₦${stats.projectedRevenue.toLocaleString()}`, icon: <Wallet className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Open Complaints", value: stats.pendingComplaints, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Total Customers", value: dashmet?.totalCustomers, icon: <Users className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Active Leads", value: dashmet?.activeLeads, icon: <TrendingUp className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Pipeline Value", value: `₦${dashmet?.pipelineValue?.toLocaleString()}`, icon: <Wallet className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Open Complaints", value: dashmet?.openComplaints, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" /> },
         ].map((item, idx) => (
           <div key={idx} className="rounded-xl border bg-card text-card-foreground shadow-sm">
             <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
@@ -87,7 +91,7 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="p-6 pt-0 pl-0 h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={locationData} margin={{ left: 10, right: 10 }}>
+              <BarChart data={dashmet?.customersByLocation} margin={{ left: 10, right: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{fill: 'hsl(var(--muted-foreground))', fontSize: 12}} allowDecimals={false} />
@@ -110,7 +114,7 @@ const Dashboard: React.FC = () => {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={feedbackData}
+                  data={dashmet?.feedbackBreakdown}
                   cx="50%"
                   cy="50%"
                   innerRadius={60}

@@ -1,43 +1,50 @@
 
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { IUser, useAuth, ValidUserRole } from '../contexts/AuthContext';
 import { Location, Agent } from '../types';
 import { StorageService } from '../services/storageService';
 import { Save, User, Lock, Moon, Sun, Trash2, AlertTriangle, CheckCircle2, Users, Plus, X, Pencil } from 'lucide-react';
+import { useUsers } from '@/hooks/useQueries';
+import { axiosDelete, axiosPost } from '@/lib/api';
+import { toast } from 'react-toastify';
 
 const Settings: React.FC = () => {
-  const { user, updateProfile } = useAuth();
+  const { user } = useAuth();
   
   // Tab State
   const [activeTab, setActiveTab] = useState<'Profile' | 'Users' | 'Preferences' | 'Data'>('Profile');
 
   // Profile State
-  const [name, setName] = useState(user?.name || '');
+  const [name, setName] = useState(user?.full_name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
-  const [location, setLocation] = useState<Location>(user?.location || Location.LAGOS);
+  const [location, setLocation] = useState<string>(user?.location || Location.LAGOS);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Password State
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
 
   // Theme State
   const [darkMode, setDarkMode] = useState(false);
 
-  // User Management State
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [showUserModal, setShowUserModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<Partial<Agent>>({
-    role: 'Sales Agent',
+  const [editingUser, setEditingUser] = useState<Partial<IUser>>({
+    role: ValidUserRole.sales_agent,
     location: Location.LAGOS
   });
+
+  const {data : agents, isLoading : agentsLoading, refetch : refetchAgents} = useUsers({
+    page : 1,
+    limit : 100
+  })
 
   useEffect(() => {
     const isDark = document.documentElement.classList.contains('dark');
     setDarkMode(isDark);
-    setAgents(StorageService.getAgents());
   }, []);
 
   const handleProfileUpdate = async (e: React.FormEvent) => {
@@ -46,7 +53,6 @@ const Settings: React.FC = () => {
     setMessage('');
 
     try {
-      await updateProfile({ name, email, phone, location });
       setMessage('Profile updated successfully!');
       setTimeout(() => setMessage(''), 3000);
     } catch (error) {
@@ -65,12 +71,14 @@ const Settings: React.FC = () => {
 
     setLoading(true);
     try {
-      await updateProfile({ password: newPassword });
+
+        await axiosPost('auth/reset-password',{currentPassword, newPassword})
       setMessage('Password changed successfully!');
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => setMessage(''), 3000);
     } catch (error) {
+        toast.error(error.message)
       setMessage('Failed to update password.');
     } finally {
       setLoading(false);
@@ -96,55 +104,54 @@ const Settings: React.FC = () => {
   };
 
   // User Management Logic
-  const handleEditUserClick = (agent: Agent) => {
+  const handleEditUserClick = (agent: IUser) => {
       setEditingUser(agent);
       setShowUserModal(true);
   };
 
   const handleAddNewUserClick = () => {
-      setEditingUser({ role: 'Sales Agent', location: Location.LAGOS });
+      setEditingUser({ role: ValidUserRole.sales_agent, location: Location.LAGOS });
       setShowUserModal(true);
   };
 
-  const handleDeleteUser = (agentId: string) => {
-      if (agentId === user?.id) {
+  const handleDeleteUser = async (agentId: string) => {
+    try {
+        if (agentId === user?._id) {
           alert("You cannot delete your own account.");
           return;
       }
       if (confirm("Are you sure you want to delete this user?")) {
-          const updatedAgents = agents.filter(a => a.id !== agentId);
-          setAgents(updatedAgents);
-          StorageService.saveAgents(updatedAgents);
+        await axiosDelete(`users/${agentId}/`,true)
+        toast.success("Agent deleted successfully")
       }
+    } catch (error) {
+        toast.error(error.message)
+    }finally{
+
+    }
   };
 
-  const handleSaveUser = () => {
-      if (!editingUser.name || !editingUser.email) return;
+  const handleSaveUser = async() => {
+    setIsSubmitting(true)
+    try {
+        if (!editingUser.full_name || !editingUser.email) return;
 
-      let updatedAgents = [...agents];
-
-      if (editingUser.id) {
+      if (editingUser._id) {
           // Edit existing
-          updatedAgents = updatedAgents.map(a => a.id === editingUser.id ? { ...a, ...editingUser } as Agent : a);
+          
       } else {
-          // Add new
-          const newUser: Agent = {
-              id: StorageService.generateId(),
-              name: editingUser.name,
-              email: editingUser.email,
-              phone: editingUser.phone || '',
-              role: editingUser.role as any,
-              location: editingUser.location as any,
-              joinedDate: new Date().toISOString().split('T')[0],
-              password: editingUser.password || 'password'
-          };
-          updatedAgents.push(newUser);
+        await axiosPost('users/create',editingUser,true)
+        
       }
-
-      setAgents(updatedAgents);
-      StorageService.saveAgents(updatedAgents);
+      toast.success("Agent added successfully")
+      refetchAgents()
       setShowUserModal(false);
-      setEditingUser({ role: 'Sales Agent', location: Location.LAGOS });
+      setEditingUser({ role: ValidUserRole.sales_agent, location: Location.LAGOS });
+    } catch (error) {
+        toast.error(error.message)
+    }finally{
+        setIsSubmitting(false)
+    }
   };
 
   return (
@@ -169,7 +176,7 @@ const Settings: React.FC = () => {
                 <span>Profile</span>
             </button>
             
-            {user?.role === 'Admin' && (
+            {user?.role === ValidUserRole.admin && (
                 <button
                     onClick={() => setActiveTab('Users')}
                     className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
@@ -195,7 +202,7 @@ const Settings: React.FC = () => {
                 <span>Preferences</span>
             </button>
 
-            <button
+            {/* <button
                 onClick={() => setActiveTab('Data')}
                 className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
                     activeTab === 'Data' 
@@ -205,7 +212,7 @@ const Settings: React.FC = () => {
             >
                 <Trash2 size={18} />
                 <span>Data</span>
-            </button>
+            </button> */}
         </aside>
 
         {/* Content Area */}
@@ -231,29 +238,29 @@ const Settings: React.FC = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Full Name</label>
-                                        <input type="text" value={name} onChange={e => setName(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                                        <input type="text" disabled value={name} onChange={e => setName(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Email</label>
-                                        <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                                        <input type="email" readOnly value={email} onChange={e => setEmail(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Phone</label>
-                                        <input type="text" value={phone} onChange={e => setPhone(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                                        <input type="text" disabled value={phone} onChange={e => setPhone(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Location</label>
-                                        <select value={location} onChange={e => setLocation(e.target.value as Location)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                                        <select value={location} disabled onChange={e => setLocation(e.target.value as Location)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
                                             <option value={Location.LAGOS}>Lagos</option>
                                             <option value={Location.IFE}>Ife</option>
                                         </select>
                                     </div>
                                 </div>
-                                <div className="pt-2">
+                                {/* <div className="pt-2">
                                     <button disabled={loading} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2">
                                         <Save size={16} className="mr-2" /> Save Changes
                                     </button>
-                                </div>
+                                </div> */}
                             </form>
                         </div>
                     </div>
@@ -265,6 +272,13 @@ const Settings: React.FC = () => {
                         </div>
                         <div className="p-6">
                             <form onSubmit={handlePasswordUpdate} className="space-y-4 max-w-md">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Current Password</label>
+                                    <div className="relative">
+                                        <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                                        <input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 pl-9 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                                    </div>
+                                </div>
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">New Password</label>
                                     <div className="relative">
@@ -291,7 +305,7 @@ const Settings: React.FC = () => {
             )}
 
             {/* Users Tab (Admin Only) */}
-            {activeTab === 'Users' && user?.role === 'Admin' && (
+            {activeTab === 'Users' && user?.role === ValidUserRole.admin && (
                 <div className="space-y-6">
                     <div className="flex justify-between items-center">
                         <div>
@@ -319,17 +333,17 @@ const Settings: React.FC = () => {
                                     </tr>
                                 </thead>
                                 <tbody className="[&_tr:last-child]:border-0">
-                                    {agents.map((agent) => (
-                                        <tr key={agent.id} className="border-b transition-colors hover:bg-muted/50">
+                                    {agents?.users?.map((agent) => (
+                                        <tr key={agent._id} className="border-b transition-colors hover:bg-muted/50">
                                             <td className="p-4 align-middle font-medium flex items-center gap-2">
                                                 <div className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-xs font-bold">
-                                                    {agent.name.charAt(0)}
+                                                    {agent.full_name.charAt(0)}
                                                 </div>
-                                                {agent.name} {agent.id === user.id && <span className="text-xs text-muted-foreground">(You)</span>}
+                                                {agent.full_name} {agent._id === user._id && <span className="text-xs text-muted-foreground">(You)</span>}
                                             </td>
                                             <td className="p-4 align-middle">
                                                 <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ${
-                                                    agent.role === 'Admin' 
+                                                    agent.role === ValidUserRole.admin 
                                                     ? 'border-transparent bg-primary text-primary-foreground hover:bg-primary/80' 
                                                     : 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80'
                                                 }`}>
@@ -340,16 +354,16 @@ const Settings: React.FC = () => {
                                             <td className="p-4 align-middle">{agent.location}</td>
                                             <td className="p-4 align-middle text-right">
                                                 <div className="flex justify-end gap-2">
-                                                    <button 
+                                                    {/* <button 
                                                         onClick={() => handleEditUserClick(agent)}
                                                         className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-transparent hover:bg-accent text-muted-foreground hover:text-foreground"
                                                         title="Edit User"
                                                     >
                                                         <Pencil size={14} />
-                                                    </button>
-                                                    {agent.id !== user.id && (
+                                                    </button> */}
+                                                    {agent._id !== user._id && (
                                                         <button 
-                                                            onClick={() => handleDeleteUser(agent.id)}
+                                                            onClick={() => handleDeleteUser(agent._id)}
                                                             className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-transparent hover:bg-red-50 text-muted-foreground hover:text-red-600 border-input"
                                                             title="Delete User"
                                                         >
@@ -422,13 +436,13 @@ const Settings: React.FC = () => {
           <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-lg sm:rounded-lg animate-in fade-in zoom-in-95 duration-200">
                   <div className="flex justify-between items-center mb-4">
-                      <h2 className="text-lg font-semibold leading-none tracking-tight">{editingUser.id ? 'Edit User' : 'Add New User'}</h2>
+                      <h2 className="text-lg font-semibold leading-none tracking-tight">{editingUser._id ? 'Edit User' : 'Add New User'}</h2>
                       <button onClick={() => setShowUserModal(false)} className="text-muted-foreground hover:text-foreground"><X size={20}/></button>
                   </div>
                   <div className="space-y-4">
                       <div className="space-y-2">
                           <label className="text-sm font-medium leading-none">Full Name</label>
-                          <input type="text" value={editingUser.name || ''} onChange={e => setEditingUser({...editingUser, name: e.target.value})} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="John Doe" />
+                          <input type="text" value={editingUser.full_name || ''} onChange={e => setEditingUser({...editingUser, full_name: e.target.value})} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="John Doe" />
                       </div>
                       <div className="space-y-2">
                           <label className="text-sm font-medium leading-none">Email</label>
@@ -441,9 +455,8 @@ const Settings: React.FC = () => {
                       <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                               <label className="text-sm font-medium leading-none">Role</label>
-                              <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as any})} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-                                  <option value="Sales Agent">Sales Agent</option>
-                                  <option value="Admin">Admin</option>
+                              <select value={editingUser.role} onChange={e => setEditingUser({...editingUser, role: e.target.value as any})} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring capitalize">
+                                {Object.values(ValidUserRole).map(t => <option className="capitalize" key={t} value={t}>{t}</option>)}
                               </select>
                           </div>
                           <div className="space-y-2">
@@ -454,15 +467,15 @@ const Settings: React.FC = () => {
                               </select>
                           </div>
                       </div>
-                      {!editingUser.id && (
+                      {/* {!editingUser._id && (
                         <div className="space-y-2">
                              <label className="text-sm font-medium leading-none">Password</label>
                              <input type="password" value={editingUser.password || ''} onChange={e => setEditingUser({...editingUser, password: e.target.value})} className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" placeholder="Set initial password" />
                         </div>
-                      )}
+                      )} */}
                       <div className="flex justify-end pt-2 gap-3">
-                          <button onClick={() => setShowUserModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
-                          <button onClick={handleSaveUser} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2">Save User</button>
+                          <button disabled={isSubmitting} onClick={() => setShowUserModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
+                          <button disabled={isSubmitting} onClick={handleSaveUser} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2">Save User</button>
                       </div>
                   </div>
               </div>

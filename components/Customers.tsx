@@ -1,31 +1,37 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Customer, CustomerType, Location, PREDEFINED_SEGMENTS, Feedback, Enquiry, Compensation, FeedbackType, Agent } from '../types';
+import { Location, PREDEFINED_SEGMENTS, Feedback, Enquiry, Compensation, FeedbackType, Agent } from '../types';
 import { StorageService } from '../services/storageService';
 import { Plus, Search, MapPin, Building2, User, Award, Crown, Zap, X, MessageSquare, Mail, RefreshCw, Calendar, Phone, DollarSign, Filter, ShoppingBag, MessageSquarePlus, FileQuestion, MoreHorizontal, Package, Truck, Store, Copy, Check, Briefcase } from 'lucide-react';
+import { CustomerOverview, useCustomerLocations, useCustomerOverview } from '@/hooks/useCustomers';
+import { CustomerSegment, CustomerSegmentType, ICustomer, ValidCustomerType } from '@/interface/customer.interface';
+import { IFeedback, ValidFeedBackSentiment, ValidFeedbackTypes } from '@/interface/feedback.interface';
+import { Skeleton } from './ui/Skeleton';
+import { useUsers } from '@/hooks/useQueries';
+import { toast } from 'react-toastify';
+import { useAuth, ValidUserRole } from '@/contexts/AuthContext';
+import { axiosPost } from '@/lib/api';
+import { ValidOrderType } from '@/interface/order.interface';
+import { IEnquiry } from '@/interface/enquiry.interface';
 
 const Customers: React.FC = () => {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const {user} = useAuth()
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   
   // Filter State
-  const [filterType, setFilterType] = useState<CustomerType | 'All'>('All');
-  const [filterLocation, setFilterLocation] = useState<Location | 'All'>('All');
+  const [filterType, setFilterType] = useState<ValidCustomerType | 'All'>('All');
+  const [filterLocation, setFilterLocation] = useState<string | 'All'>('All');
   
   // Detail View State
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerFeedback, setCustomerFeedback] = useState<Feedback[]>([]);
-  const [customerEnquiries, setCustomerEnquiries] = useState<Enquiry[]>([]);
-  const [customerCompensations, setCustomerCompensations] = useState<Compensation[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOverview | null>(null);
   
   // Copy State
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   // Action Modals State
-  const [actionCustomer, setActionCustomer] = useState<Customer | null>(null);
+  const [actionCustomer, setActionCustomer] = useState<CustomerOverview | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [showEnquiryModal, setShowEnquiryModal] = useState(false);
@@ -33,77 +39,66 @@ const Customers: React.FC = () => {
   // Input States for Actions
   const [orderAmount, setOrderAmount] = useState('');
   const [orderVolume, setOrderVolume] = useState('');
-  const [orderType, setOrderType] = useState<'Delivery' | 'Pickup'>('Delivery');
-  
+  const [orderType, setOrderType] = useState<ValidOrderType>(ValidOrderType.delivery);
+  const [agentSearch, setAgentSearch] = useState('');
+  const [page, setPage] = useState(1)
+  const limit = 10
   const [feedbackContent, setFeedbackContent] = useState('');
-  const [feedbackType, setFeedbackType] = useState<FeedbackType>(FeedbackType.COMPLAINT);
+  const [feedbackType, setFeedbackType] = useState<ValidFeedbackTypes>(ValidFeedbackTypes.complaint);
   const [enquirySubject, setEnquirySubject] = useState('');
   const [enquiryMessage, setEnquiryMessage] = useState('');
+  const [isSubmitting,setIsSubmitting] = useState(false)
+  const {data : customerDatas, isLoading : customerDataLoading, refetch : refetchCustomerData} = useCustomerOverview({
+    limit,
+    page,
+    search : searchTerm,
+    customer_location : filterLocation == "All" ? "" : filterLocation,
+    customer_type : filterType == "All" ? "" : filterType
+  })
+  const {data : locations} = useCustomerLocations()
+  const {data : users} = useUsers({
+    limit : 20,
+    page : 1,
+    search : agentSearch
+  })
 
-  const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
-    type: CustomerType.B2C,
-    location: Location.LAGOS,
+
+  const [newCustomer, setNewCustomer] = useState<Partial<ICustomer>>({
+    customer_type: ValidCustomerType.b2b,
+    customer_location: Location.LAGOS,
     segments: [],
-    totalOrders: 0,
-    totalSpent: 0,
   });
 
-  useEffect(() => {
-    setCustomers(StorageService.getCustomers());
-    setAgents(StorageService.getAgents());
-  }, []);
+  const handleSaveCustomer = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!newCustomer.customer_name || !newCustomer.customer_email) return;
+      await axiosPost('customers',newCustomer,true)
+      refetchCustomerData()
+      setShowAddCustomerModal(false);
+      setNewCustomer({ customer_type: ValidCustomerType.b2b, segments: []});
+      toast.success("New customer added successfully")
+    } catch (error) {
+      toast.error(error.message)
+    }finally{
+      setIsSubmitting(true)
+    }
 
-  const handleSaveCustomer = () => {
-    if (!newCustomer.name || !newCustomer.email) return;
-    
-    // Find assigned agent name if ID is selected
-    const agent = agents.find(a => a.id === newCustomer.addedByAgentId);
-
-    const customer: Customer = {
-      id: StorageService.generateId(),
-      name: newCustomer.name,
-      email: newCustomer.email,
-      phone: newCustomer.phone || '',
-      type: newCustomer.type as CustomerType,
-      location: newCustomer.location as Location,
-      companyName: newCustomer.companyName,
-      joinedDate: new Date().toISOString().split('T')[0],
-      segments: newCustomer.segments || [],
-      totalOrders: newCustomer.totalOrders || 0,
-      totalSpent: newCustomer.totalSpent || 0,
-      addedByAgentId: newCustomer.addedByAgentId,
-      addedByAgentName: agent?.name
-    };
-
-    const updated = [customer, ...customers];
-    setCustomers(updated);
-    StorageService.saveCustomers(updated);
-    setShowAddCustomerModal(false);
-    setNewCustomer({ type: CustomerType.B2C, location: Location.LAGOS, segments: [], totalOrders: 0, totalSpent: 0 });
   };
 
-  const toggleSegment = (segment: string) => {
-    setNewCustomer(prev => {
-      const current = prev.segments || [];
-      if (current.includes(segment)) {
-        return { ...prev, segments: current.filter(s => s !== segment) };
-      } else {
-        return { ...prev, segments: [...current, segment] };
-      }
+  const toggleSegment = (segment: CustomerSegmentType) => {
+    setNewCustomer((prev) => {
+      const current: CustomerSegmentType[] = prev.segments || [];
+      return {
+        ...prev,
+        segments: current.includes(segment)
+          ? current.filter((s) => s !== segment)
+          : [...current, segment],
+      };
     });
   };
 
-  const handleViewDetails = (customer: Customer) => {
-    // Fetch related data
-    const allFeedback = StorageService.getFeedback();
-    const allEnquiries = StorageService.getEnquiries();
-    const allCompensations = StorageService.getCompensations();
-
-    // Match logic (ID > Email > Name)
-    setCustomerFeedback(allFeedback.filter(f => f.customerId === customer.id || f.customerName === customer.name));
-    setCustomerEnquiries(allEnquiries.filter(e => e.email === customer.email || e.customerName === customer.name));
-    setCustomerCompensations(allCompensations.filter(c => c.customerId === customer.id || c.customerName === customer.name));
-    
+  const handleViewDetails = (customer: CustomerOverview) => {
     setSelectedCustomer(customer);
   };
   
@@ -115,65 +110,61 @@ const Customers: React.FC = () => {
 
   // --- Action Handlers ---
 
-  const openOrderModal = (e: React.MouseEvent, customer: Customer) => {
+  const openOrderModal = (e: React.MouseEvent, customer: CustomerOverview) => {
     e.stopPropagation();
     setActionCustomer(customer);
     setOrderAmount('');
     setOrderVolume('');
-    setOrderType('Delivery');
+    setOrderType(ValidOrderType.delivery);
     setShowOrderModal(true);
   };
 
-  const handleSaveOrder = () => {
-    if (!actionCustomer || !orderAmount) return;
-    const amount = parseFloat(orderAmount);
-    
-    const updatedCustomers = customers.map(c => {
-      if (c.id === actionCustomer.id) {
-        return {
-          ...c,
-          totalOrders: c.totalOrders + 1,
-          totalSpent: c.totalSpent + amount
-        };
-      }
-      return c;
-    });
-
-    setCustomers(updatedCustomers);
-    StorageService.saveCustomers(updatedCustomers);
-    setShowOrderModal(false);
-    setActionCustomer(null);
+  const handleSaveOrder = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!actionCustomer || !orderAmount) return;
+      const amount = parseFloat(orderAmount);
+      await axiosPost('customers/create-order',{customer : actionCustomer._id, order_volume : orderVolume, order_amount : orderAmount, order_type : orderType}, true)
+      setShowOrderModal(false);
+      setActionCustomer(null);
+    } catch (error) {
+      toast.error(error.message)
+    }finally{
+      setIsSubmitting(false)
+    }
   };
 
-  const openFeedbackModal = (e: React.MouseEvent, customer: Customer) => {
+  const openFeedbackModal = (e: React.MouseEvent, customer: CustomerOverview) => {
     e.stopPropagation();
     setActionCustomer(customer);
     setFeedbackContent('');
-    setFeedbackType(FeedbackType.COMPLAINT);
+    setFeedbackType(ValidFeedbackTypes.complaint);
     setShowFeedbackModal(true);
   };
 
-  const handleSaveFeedback = () => {
-    if (!actionCustomer || !feedbackContent) return;
+  const handleSaveFeedback = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!actionCustomer || !feedbackContent) return;
 
-    const newFeedback: Feedback = {
-      id: StorageService.generateId(),
-      customerId: actionCustomer.id,
-      customerName: actionCustomer.name,
-      type: feedbackType,
-      content: feedbackContent,
-      date: new Date().toISOString().split('T')[0],
-      status: 'Open',
-      sentiment: 'Neutral' as any, // Simple default, bypassing AI for quick entry
-    };
-
-    const currentFeedback = StorageService.getFeedback();
-    StorageService.saveFeedback([newFeedback, ...currentFeedback]);
-    setShowFeedbackModal(false);
-    setActionCustomer(null);
+      const newFeedback: IFeedback = {
+        customer: actionCustomer._id,
+        type: feedbackType,
+        content: feedbackContent,
+      };
+      await axiosPost(`feedbacks`,newFeedback,true)
+      refetchCustomerData()
+      toast.success("Feedback submitted successfully")
+      setShowFeedbackModal(false);
+      setActionCustomer(null);
+    } catch (error) {
+      toast.error(error.message)
+    }finally{
+      setIsSubmitting(false)
+    }
   };
 
-  const openEnquiryModal = (e: React.MouseEvent, customer: Customer) => {
+  const openEnquiryModal = (e: React.MouseEvent, customer: CustomerOverview) => {
     e.stopPropagation();
     setActionCustomer(customer);
     setEnquirySubject('');
@@ -181,37 +172,43 @@ const Customers: React.FC = () => {
     setShowEnquiryModal(true);
   };
 
-  const handleSaveEnquiry = () => {
-    if (!actionCustomer || !enquiryMessage) return;
+  const handleSaveEnquiry = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!actionCustomer || !enquiryMessage) return;
 
-    const newEnquiry: Enquiry = {
-      id: StorageService.generateId(),
-      customerName: actionCustomer.name,
-      email: actionCustomer.email,
-      subject: enquirySubject || 'Quick Enquiry',
-      message: enquiryMessage,
-      date: new Date().toISOString().split('T')[0],
-      status: 'Open',
-    };
-
-    const currentEnquiries = StorageService.getEnquiries();
-    StorageService.saveEnquiries([newEnquiry, ...currentEnquiries]);
-    setShowEnquiryModal(false);
-    setActionCustomer(null);
+      const newEnquiry: IEnquiry = {
+        customer_name: actionCustomer.customer_name,
+        customer_email: actionCustomer.customer_email,
+        subject: enquirySubject || 'Quick Enquiry',
+        message: enquiryMessage,
+        date: new Date(),
+      };
+      await axiosPost('enquiries',newEnquiry,true)
+      refetchCustomerData()
+      setShowEnquiryModal(false);
+      setActionCustomer(null);
+      toast.success("Customer Enquiry Saved Successfully")
+    } catch (error) {
+      toast.error(error.message)
+    }finally{
+      setIsSubmitting(false)
+    }
+    
   };
 
   // --- Logic Helpers ---
 
   // Logic: > 1 Order = Repeat, Else New
-  const getStatus = (c: Customer) => {
-    return c.totalOrders > 1 ? 'Repeat' : 'New';
+  const getStatus = (c: CustomerOverview) => {
+    return c.total_orders > 1 ? 'Repeat' : 'New';
   };
 
   // Logic: Based on Spend
-  const getGrade = (c: Customer) => {
-    if (c.totalOrders <= 1) return null; // New customers don't get a grade yet
-    if (c.totalSpent >= 500000) return 'Gold';
-    if (c.totalSpent >= 100000) return 'Silver';
+  const getGrade = (c: CustomerOverview) => {
+    if (c.total_orders <= 1) return null; // New customers don't get a grade yet
+    if (c.total_order_cost >= 500000) return 'Gold';
+    if (c.total_order_cost >= 100000) return 'Silver';
     return 'Bronze';
   };
 
@@ -228,16 +225,6 @@ const Customers: React.FC = () => {
     }
   };
 
-  const filteredCustomers = customers.filter(c => {
-    const matchSearch = c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        c.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (c.companyName && c.companyName.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    const matchType = filterType === 'All' || c.type === filterType;
-    const matchLocation = filterLocation === 'All' || c.location === filterLocation;
-
-    return matchSearch && matchType && matchLocation;
-  });
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -272,11 +259,10 @@ const Customers: React.FC = () => {
                 <select
                     value={filterType}
                     onChange={(e) => setFilterType(e.target.value as any)}
-                    className="bg-transparent border-none text-sm font-medium focus:outline-none"
+                    className="bg-transparent border-none text-sm font-medium focus:outline-none capitalize"
                 >
                     <option value="All">All Types</option>
-                    <option value={CustomerType.B2C}>B2C</option>
-                    <option value={CustomerType.B2B}>B2B</option>
+                    {Object.values(ValidCustomerType).map(t => <option key={t} value={t} className="uppercase">{t}</option>)}
                 </select>
              </div>
 
@@ -288,8 +274,7 @@ const Customers: React.FC = () => {
                     className="bg-transparent border-none text-sm font-medium focus:outline-none"
                 >
                     <option value="All">All Locations</option>
-                    <option value={Location.LAGOS}>Lagos</option>
-                    <option value={Location.IFE}>Ife</option>
+                    {locations?.map((item,idx) => <option value={item} key={`${item}-${idx}`} className='capitalize'>{item}</option>)}
                 </select>
              </div>
         </div>
@@ -297,112 +282,116 @@ const Customers: React.FC = () => {
 
       <div className="rounded-md border bg-card">
         <div className="relative w-full overflow-auto">
-          <table className="w-full caption-bottom text-sm">
-            <thead className="[&_tr]:border-b">
-              <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Customer</th>
-                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status & Grade</th>
-                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Type & Segments</th>
-                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Contact</th>
-                <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Orders</th>
-                <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Quick Actions</th>
-              </tr>
-            </thead>
-            <tbody className="[&_tr:last-child]:border-0">
-              {filteredCustomers.map((customer) => {
-                const status = getStatus(customer);
-                const grade = getGrade(customer);
+          {
+            customerDataLoading ? <CustomerTableSkeleton/> : (
+            <table className="w-full caption-bottom text-sm">
+              <thead className="[&_tr]:border-b">
+                <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Customer</th>
+                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status & Grade</th>
+                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Type & Segments</th>
+                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Contact</th>
+                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Orders</th>
+                  <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Quick Actions</th>
+                </tr>
+              </thead>
+              <tbody className="[&_tr:last-child]:border-0">
+                {customerDatas?.data?.map((customer) => {
+                  const status = getStatus(customer);
+                  const grade = getGrade(customer);
 
-                return (
-                    <tr 
-                      key={customer.id} 
-                      onClick={() => handleViewDetails(customer)}
-                      className="border-b transition-colors hover:bg-muted/50 cursor-pointer group"
-                    >
-                    <td className="p-4 align-middle">
-                        <div className="flex flex-col">
-                        <span className="font-medium">{customer.name}</span>
-                        {customer.companyName && (
-                            <span className="text-xs text-muted-foreground">{customer.companyName}</span>
-                        )}
-                        </div>
-                    </td>
-                    <td className="p-4 align-middle">
-                        <div className="flex flex-col gap-1 items-start">
-                             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status === 'Repeat' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                                {status === 'Repeat' ? <Zap size={10} fill="currentColor"/> : <Plus size={10}/>}
-                                {status}
-                            </span>
-                            {getGradeBadge(grade)}
-                        </div>
-                    </td>
-                    <td className="p-4 align-middle">
-                        <div className="flex flex-col gap-2">
-                            <span className={`inline-flex items-center gap-1 w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors ${customer.type === CustomerType.B2B ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
-                            {customer.type === CustomerType.B2B ? <Building2 size={12}/> : <User size={12}/>}
-                            {customer.type}
-                            </span>
-                            <div className="flex flex-wrap gap-1">
+                  return (
+                      <tr 
+                        key={customer._id} 
+                        onClick={() => handleViewDetails(customer)}
+                        className="border-b transition-colors hover:bg-muted/50 cursor-pointer group"
+                      >
+                      <td className="p-4 align-middle">
+                          <div className="flex flex-col">
+                          <span className="font-medium">{customer.customer_name}</span>
+                          {customer.company_name && (
+                              <span className="text-xs text-muted-foreground">{customer.company_name}</span>
+                          )}
+                          </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                          <div className="flex flex-col gap-1 items-start">
+                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status === 'Repeat' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                                  {status === 'Repeat' ? <Zap size={10} fill="currentColor"/> : <Plus size={10}/>}
+                                  {status}
+                              </span>
+                              {getGradeBadge(grade)}
+                          </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                          <div className="flex flex-col gap-2">
+                              <span className={`inline-flex items-center gap-1 w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors uppercase ${customer.customer_type === ValidCustomerType.b2b ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
+                              {customer.customer_type === ValidCustomerType.b2b ? <Building2 size={12}/> : <User size={12}/>}
+                              {customer.customer_type}
+                              </span>
+                              <div className="flex flex-wrap gap-1">
                                 {customer.segments?.map(seg => (
                                     <span key={seg} className="inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                                         {seg}
                                     </span>
                                 ))}
-                            </div>
-                        </div>
+                              </div>
+                          </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                          <div className="flex flex-col text-sm text-muted-foreground">
+                          <span>{customer.customer_email}</span>
+                          <span>{customer.customer_phone}</span>
+                          <span className="inline-flex items-center gap-1 text-xs mt-1">
+                              <MapPin size={10} /> {customer.customer_location}
+                          </span>
+                          </div>
+                      </td>
+                      <td className="p-4 align-middle">
+                          <div className="flex flex-col">
+                              <span className="font-medium">{customer.total_orders} orders</span>
+                              <span className="text-xs text-muted-foreground">₦{customer.total_order_cost.toLocaleString()}</span>
+                          </div>
+                      </td>
+                      <td className="p-4 align-middle text-right">
+                          <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button 
+                                  onClick={(e) => openOrderModal(e, customer)}
+                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                  title="Add New Order"
+                              >
+                                  <ShoppingBag size={14} />
+                              </button>
+                              <button 
+                                  onClick={(e) => openFeedbackModal(e, customer)}
+                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                  title="Log Feedback"
+                              >
+                                  <MessageSquarePlus size={14} />
+                              </button>
+                              <button 
+                                  onClick={(e) => openEnquiryModal(e, customer)}
+                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                  title="Log Enquiry"
+                              >
+                                  <FileQuestion size={14} />
+                              </button>
+                          </div>
+                      </td>
+                      </tr>
+                  );
+                })}
+                {customerDatas?.data?.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-4 align-middle text-center text-muted-foreground">
+                      No customers found matching your filters.
                     </td>
-                    <td className="p-4 align-middle">
-                        <div className="flex flex-col text-sm text-muted-foreground">
-                        <span>{customer.email}</span>
-                        <span>{customer.phone}</span>
-                        <span className="inline-flex items-center gap-1 text-xs mt-1">
-                            <MapPin size={10} /> {customer.location}
-                        </span>
-                        </div>
-                    </td>
-                    <td className="p-4 align-middle">
-                        <div className="flex flex-col">
-                            <span className="font-medium">{customer.totalOrders} orders</span>
-                            <span className="text-xs text-muted-foreground">₦{customer.totalSpent.toLocaleString()}</span>
-                        </div>
-                    </td>
-                    <td className="p-4 align-middle text-right">
-                        <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button 
-                                onClick={(e) => openOrderModal(e, customer)}
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                title="Add New Order"
-                            >
-                                <ShoppingBag size={14} />
-                            </button>
-                            <button 
-                                onClick={(e) => openFeedbackModal(e, customer)}
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                title="Log Feedback"
-                            >
-                                <MessageSquarePlus size={14} />
-                            </button>
-                             <button 
-                                onClick={(e) => openEnquiryModal(e, customer)}
-                                className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                title="Log Enquiry"
-                            >
-                                <FileQuestion size={14} />
-                            </button>
-                        </div>
-                    </td>
-                    </tr>
-                );
-              })}
-              {filteredCustomers.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-4 align-middle text-center text-muted-foreground">
-                    No customers found matching your filters.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  </tr>
+                )}
+              </tbody>
+            </table>)
+          }
+          
         </div>
       </div>
 
@@ -414,11 +403,11 @@ const Customers: React.FC = () => {
                 <div className="p-6 border-b flex justify-between items-start sticky top-0 bg-card z-10">
                     <div>
                         <div className="flex items-center gap-2">
-                            <h2 className="text-2xl font-bold tracking-tight">{selectedCustomer.name}</h2>
+                            <h2 className="text-2xl font-bold tracking-tight">{selectedCustomer.customer_name}</h2>
                             {getGradeBadge(getGrade(selectedCustomer))}
                         </div>
-                        {selectedCustomer.companyName && (
-                            <p className="text-muted-foreground">{selectedCustomer.companyName}</p>
+                        {selectedCustomer.company_name && (
+                            <p className="text-muted-foreground">{selectedCustomer.company_name}</p>
                         )}
                         <div className="flex flex-wrap gap-2 mt-2">
                              {selectedCustomer.segments?.map(seg => (
@@ -438,11 +427,11 @@ const Customers: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <div className="rounded-lg border p-4 bg-muted/20">
                             <p className="text-sm font-medium text-muted-foreground">Total Spent</p>
-                            <p className="text-2xl font-bold">₦{selectedCustomer.totalSpent.toLocaleString()}</p>
+                            <p className="text-2xl font-bold">₦{selectedCustomer.total_order_cost.toLocaleString()}</p>
                         </div>
                         <div className="rounded-lg border p-4 bg-muted/20">
                             <p className="text-sm font-medium text-muted-foreground">Total Orders</p>
-                            <p className="text-2xl font-bold">{selectedCustomer.totalOrders}</p>
+                            <p className="text-2xl font-bold">{selectedCustomer.total_orders}</p>
                         </div>
                     </div>
 
@@ -454,9 +443,9 @@ const Customers: React.FC = () => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                             <div className="flex items-center gap-2 group p-1.5 -ml-1.5 rounded hover:bg-muted/50 transition-colors">
                                 <Mail size={14} className="text-muted-foreground shrink-0"/>
-                                <span className="truncate flex-1">{selectedCustomer.email}</span>
+                                <span className="truncate flex-1">{selectedCustomer.customer_email}</span>
                                 <button 
-                                    onClick={() => copyToClipboard(selectedCustomer.email, 'email')}
+                                    onClick={() => copyToClipboard(selectedCustomer.customer_email, 'email')}
                                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all"
                                     title="Copy Email"
                                 >
@@ -465,9 +454,9 @@ const Customers: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2 group p-1.5 -ml-1.5 rounded hover:bg-muted/50 transition-colors">
                                 <Phone size={14} className="text-muted-foreground shrink-0"/>
-                                <span className="truncate flex-1">{selectedCustomer.phone}</span>
+                                <span className="truncate flex-1">{selectedCustomer.customer_phone}</span>
                                 <button 
-                                    onClick={() => copyToClipboard(selectedCustomer.phone, 'phone')}
+                                    onClick={() => copyToClipboard(selectedCustomer.customer_phone, 'phone')}
                                     className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-all"
                                     title="Copy Phone"
                                 >
@@ -476,16 +465,16 @@ const Customers: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2 p-1.5 -ml-1.5">
                                 <MapPin size={14} className="text-muted-foreground"/>
-                                <span>{selectedCustomer.location}</span>
+                                <span>{selectedCustomer.customer_location}</span>
                             </div>
                             <div className="flex items-center gap-2 p-1.5 -ml-1.5">
                                 <Calendar size={14} className="text-muted-foreground"/>
-                                <span>Joined {selectedCustomer.joinedDate}</span>
+                                <span>Joined {new Date(selectedCustomer.createdAt).toISOString()}</span>
                             </div>
-                             {selectedCustomer.addedByAgentName && (
+                             {selectedCustomer.added_by && (
                                 <div className="flex items-center gap-2 p-1.5 -ml-1.5 col-span-full">
                                     <Briefcase size={14} className="text-muted-foreground"/>
-                                    <span>Added by: <span className="font-medium">{selectedCustomer.addedByAgentName}</span></span>
+                                    <span>Added by: <span className="font-medium">{selectedCustomer.added_by}</span></span>
                                 </div>
                             )}
                         </div>
@@ -500,15 +489,15 @@ const Customers: React.FC = () => {
                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                 <MessageSquare size={18} /> Feedback History
                             </h3>
-                            {customerFeedback.length > 0 ? (
+                            {selectedCustomer?.feedbacks?.length > 0 ? (
                                 <div className="space-y-3">
-                                    {customerFeedback.map(item => (
-                                        <div key={item.id} className="rounded-md border p-3 text-sm">
+                                    {selectedCustomer?.feedbacks?.map((item, idx) => (
+                                        <div key={idx} className="rounded-md border p-3 text-sm">
                                             <div className="flex justify-between items-start mb-1">
-                                                <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium ${item.type === FeedbackType.COMPLAINT ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                                                <span className={`inline-flex items-center rounded-sm px-2 py-0.5 text-xs font-medium capitalize ${item.type === ValidFeedbackTypes.complaint ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                                                     {item.type}
                                                 </span>
-                                                <span className="text-muted-foreground text-xs">{item.date}</span>
+                                                <span className="text-muted-foreground text-xs">{new Date(item.createdAt).toLocaleString()}</span>
                                             </div>
                                             <p className="text-muted-foreground">{item.content}</p>
                                         </div>
@@ -524,15 +513,15 @@ const Customers: React.FC = () => {
                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                 <Mail size={18} /> Recent Enquiries
                             </h3>
-                            {customerEnquiries.length > 0 ? (
+                            {selectedCustomer?.recent_enquiries?.length > 0 ? (
                                 <div className="space-y-3">
-                                    {customerEnquiries.map(item => (
-                                        <div key={item.id} className="rounded-md border p-3 text-sm">
+                                    {selectedCustomer?.recent_enquiries?.map((item, idx) => (
+                                        <div key={idx} className="rounded-md border p-3 text-sm">
                                             <div className="flex justify-between items-baseline mb-1">
                                                 <span className="font-medium">{item.subject}</span>
-                                                <span className="text-muted-foreground text-xs">{item.date}</span>
+                                                <span className="text-muted-foreground text-xs">{new Date(item.date).toLocaleString()}</span>
                                             </div>
-                                            <p className="text-muted-foreground truncate">{item.message}</p>
+                                            <p className="text-muted-foreground truncate">{item.subject}</p>
                                         </div>
                                     ))}
                                 </div>
@@ -546,16 +535,16 @@ const Customers: React.FC = () => {
                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                 <RefreshCw size={18} /> Compensations
                             </h3>
-                            {customerCompensations.length > 0 ? (
+                            {selectedCustomer?.compensations?.length > 0 ? (
                                 <div className="space-y-3">
-                                    {customerCompensations.map(item => (
-                                        <div key={item.id} className="rounded-md border p-3 text-sm flex justify-between items-center">
+                                    {selectedCustomer?.compensations?.map((item,idx) => (
+                                        <div key={idx} className="rounded-md border p-3 text-sm flex justify-between items-center">
                                             <div>
                                                 <p className="font-medium">{item.reason}</p>
-                                                <p className="text-xs text-muted-foreground">{item.date}</p>
+                                                <p className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</p>
                                             </div>
                                             <div className="text-right">
-                                                <p className="font-bold text-destructive">-₦{item.amount.toLocaleString()}</p>
+                                                <p className="font-bold text-destructive">-₦{item.value.toLocaleString()}</p>
                                                 <span className="text-xs px-2 py-0.5 rounded-full bg-secondary">{item.status}</span>
                                             </div>
                                         </div>
@@ -578,7 +567,7 @@ const Customers: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
              <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg sm:rounded-lg animate-in fade-in zoom-in-95 duration-200">
                 <h2 className="text-lg font-semibold mb-1">New Order</h2>
-                <p className="text-sm text-muted-foreground mb-4">Record a new order for {actionCustomer.name}.</p>
+                <p className="text-sm text-muted-foreground mb-4">Record a new order for {actionCustomer.customer_name}.</p>
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -614,14 +603,14 @@ const Customers: React.FC = () => {
                         <label className="text-sm font-medium">Order Type</label>
                         <div className="flex gap-2 mt-1">
                             <button
-                                onClick={() => setOrderType('Delivery')}
-                                className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${orderType === 'Delivery' ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                                onClick={() => setOrderType(ValidOrderType.delivery)}
+                                className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${orderType === ValidOrderType.delivery ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
                             >
                                 <Truck size={14} className="mr-2" /> Delivery
                             </button>
                             <button
-                                onClick={() => setOrderType('Pickup')}
-                                className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${orderType === 'Pickup' ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                                onClick={() => setOrderType(ValidOrderType.pickup)}
+                                className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${orderType === ValidOrderType.pickup ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
                             >
                                 <Store size={14} className="mr-2" /> Pickup
                             </button>
@@ -629,8 +618,8 @@ const Customers: React.FC = () => {
                     </div>
 
                     <div className="flex justify-end gap-2 pt-2">
-                         <button onClick={() => setShowOrderModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
-                         <button onClick={handleSaveOrder} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Order</button>
+                         <button disabled={isSubmitting} onClick={() => setShowOrderModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
+                         <button disabled={isSubmitting} onClick={handleSaveOrder} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Order</button>
                     </div>
                 </div>
              </div>
@@ -642,16 +631,16 @@ const Customers: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
              <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg sm:rounded-lg animate-in fade-in zoom-in-95 duration-200">
                 <h2 className="text-lg font-semibold mb-1">Quick Feedback</h2>
-                <p className="text-sm text-muted-foreground mb-4">Log feedback from {actionCustomer.name}.</p>
+                <p className="text-sm text-muted-foreground mb-4">Log feedback from {actionCustomer.customer_name}.</p>
                 <div className="space-y-4">
                     <div>
                         <label className="text-sm font-medium">Type</label>
                         <div className="flex gap-2 mt-1">
-                            {Object.values(FeedbackType).map(t => (
+                            {Object.values(ValidFeedbackTypes).map(t => (
                                 <button 
                                     key={t}
                                     onClick={() => setFeedbackType(t)}
-                                    className={`flex-1 text-xs border rounded-md py-1.5 ${feedbackType === t ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent text-muted-foreground'}`}
+                                    className={`flex-1 text-xs border rounded-md py-1.5 capitalize ${feedbackType === t ? 'bg-primary text-primary-foreground border-primary' : 'bg-transparent text-muted-foreground'}`}
                                 >
                                     {t}
                                 </button>
@@ -668,8 +657,8 @@ const Customers: React.FC = () => {
                         />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
-                         <button onClick={() => setShowFeedbackModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
-                         <button onClick={handleSaveFeedback} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Feedback</button>
+                         <button disabled={isSubmitting} onClick={() => setShowFeedbackModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
+                         <button disabled={isSubmitting} onClick={handleSaveFeedback} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Feedback</button>
                     </div>
                 </div>
              </div>
@@ -681,7 +670,7 @@ const Customers: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
              <div className="w-full max-w-sm rounded-lg border bg-card p-6 shadow-lg sm:rounded-lg animate-in fade-in zoom-in-95 duration-200">
                 <h2 className="text-lg font-semibold mb-1">Quick Enquiry</h2>
-                <p className="text-sm text-muted-foreground mb-4">Log enquiry from {actionCustomer.name}.</p>
+                <p className="text-sm text-muted-foreground mb-4">Log enquiry from {actionCustomer.customer_name}.</p>
                 <div className="space-y-4">
                     <div>
                         <label className="text-sm font-medium">Subject</label>
@@ -703,8 +692,8 @@ const Customers: React.FC = () => {
                         />
                     </div>
                     <div className="flex justify-end gap-2 pt-2">
-                         <button onClick={() => setShowEnquiryModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
-                         <button onClick={handleSaveEnquiry} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Enquiry</button>
+                         <button disabled={isSubmitting} onClick={() => setShowEnquiryModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
+                         <button disabled={isSubmitting} onClick={handleSaveEnquiry} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Enquiry</button>
                     </div>
                 </div>
              </div>
@@ -725,11 +714,11 @@ const Customers: React.FC = () => {
                 <label className="text-sm font-medium leading-none">Type</label>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 text-sm text-foreground">
-                    <input type="radio" className="accent-primary h-4 w-4" checked={newCustomer.type === CustomerType.B2C} onChange={() => setNewCustomer({...newCustomer, type: CustomerType.B2C})} />
+                    <input type="radio" className="accent-primary h-4 w-4" checked={newCustomer.customer_type === ValidCustomerType.b2c} onChange={() => setNewCustomer({...newCustomer, customer_type: ValidCustomerType.b2c})} />
                     B2C (Individual)
                   </label>
                   <label className="flex items-center gap-2 text-sm text-foreground">
-                    <input type="radio" className="accent-primary h-4 w-4" checked={newCustomer.type === CustomerType.B2B} onChange={() => setNewCustomer({...newCustomer, type: CustomerType.B2B})} />
+                    <input type="radio" className="accent-primary h-4 w-4" checked={newCustomer.customer_type === ValidCustomerType.b2b} onChange={() => setNewCustomer({...newCustomer, customer_type: ValidCustomerType.b2b})} />
                     B2B (Business)
                   </label>
                 </div>
@@ -740,19 +729,19 @@ const Customers: React.FC = () => {
                 <input 
                   type="text" 
                   className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={newCustomer.name || ''} 
-                  onChange={e => setNewCustomer({...newCustomer, name: e.target.value})}
+                  value={newCustomer.customer_name || ''} 
+                  onChange={e => setNewCustomer({...newCustomer, customer_name: e.target.value})}
                 />
               </div>
 
-              {newCustomer.type === CustomerType.B2B && (
+              {newCustomer.customer_type === ValidCustomerType.b2b && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium leading-none">Company Name</label>
                   <input 
                     type="text" 
                     className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={newCustomer.companyName || ''} 
-                    onChange={e => setNewCustomer({...newCustomer, companyName: e.target.value})}
+                    value={newCustomer.company_name || ''} 
+                    onChange={e => setNewCustomer({...newCustomer, company_name: e.target.value})}
                   />
                 </div>
               )}
@@ -763,8 +752,8 @@ const Customers: React.FC = () => {
                   <input 
                     type="email" 
                     className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={newCustomer.email || ''} 
-                    onChange={e => setNewCustomer({...newCustomer, email: e.target.value})}
+                    value={newCustomer.customer_email || ''} 
+                    onChange={e => setNewCustomer({...newCustomer, customer_email: e.target.value})}
                   />
                 </div>
                 <div className="space-y-2">
@@ -772,8 +761,8 @@ const Customers: React.FC = () => {
                   <input 
                     type="text" 
                     className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    value={newCustomer.phone || ''} 
-                    onChange={e => setNewCustomer({...newCustomer, phone: e.target.value})}
+                    value={newCustomer.customer_phone || ''} 
+                    onChange={e => setNewCustomer({...newCustomer, customer_phone: e.target.value})}
                   />
                 </div>
               </div>
@@ -782,25 +771,25 @@ const Customers: React.FC = () => {
                 <label className="text-sm font-medium leading-none">Location</label>
                 <select 
                   className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={newCustomer.location} 
-                  onChange={e => setNewCustomer({...newCustomer, location: e.target.value as Location})}
+                  value={newCustomer.customer_location} 
+                  onChange={e => setNewCustomer({...newCustomer, customer_location: e.target.value as Location})}
                 >
                   <option value={Location.LAGOS}>Lagos</option>
                   <option value={Location.IFE}>Ife</option>
                 </select>
               </div>
 
-              <div className="space-y-2">
+              {user.role === ValidUserRole.admin && <div className="space-y-2">
                 <label className="text-sm font-medium leading-none">Assigned Agent (Attribution)</label>
                 <select 
                   className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  value={newCustomer.addedByAgentId || ''} 
-                  onChange={e => setNewCustomer({...newCustomer, addedByAgentId: e.target.value})}
+                  value={newCustomer.assigned_agent || ''} 
+                  onChange={e => setNewCustomer({...newCustomer, assigned_agent: e.target.value})}
                 >
                   <option value="">-- Select Agent --</option>
-                  {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  {users?.users?.map(a => <option key={a._id} value={a._id}>{a.full_name}</option>)}
                 </select>
-              </div>
+              </div>}
 
               <div className="grid grid-cols-2 gap-4 border-t pt-4">
                  <div className="space-y-2">
@@ -809,8 +798,8 @@ const Customers: React.FC = () => {
                         type="number" 
                         min="0"
                         className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={newCustomer.totalOrders} 
-                        onChange={e => setNewCustomer({...newCustomer, totalOrders: parseInt(e.target.value) || 0})}
+                        value={newCustomer.order_volume} 
+                        onChange={e => setNewCustomer({...newCustomer, order_volume: parseInt(e.target.value)})}
                     />
                  </div>
                  <div className="space-y-2">
@@ -819,16 +808,40 @@ const Customers: React.FC = () => {
                         type="number" 
                         min="0"
                         className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        value={newCustomer.totalSpent} 
-                        onChange={e => setNewCustomer({...newCustomer, totalSpent: parseInt(e.target.value) || 0})}
+                        value={newCustomer.order_amount} 
+                        onChange={e => setNewCustomer({...newCustomer, order_amount: parseInt(e.target.value)})}
                     />
                  </div>
               </div>
+              {
+                (!!newCustomer.order_volume || !!newCustomer.order_volume) &&
+                <div className='border-t pt-4'>
+                  <label className="text-sm font-medium">Order Type</label>
+                  <div className="grid grid-cols-2 gap-4 ">
+                  
+                    <div className="flex gap-2 mt-1">
+                      <button
+                            onClick={() => setNewCustomer({...newCustomer, order_type: ValidOrderType.delivery})}
+                            className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${newCustomer.order_type === ValidOrderType.delivery ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                        >
+                            <Truck size={14} className="mr-2" /> Delivery
+                      </button>
+                      <button
+                        onClick={() => setNewCustomer({...newCustomer, order_type: ValidOrderType.pickup})}
+                        className={`flex-1 inline-flex items-center justify-center rounded-md text-xs font-medium px-2.5 py-2.5 transition-colors border ${newCustomer.order_type === ValidOrderType.pickup ? 'border-primary bg-primary/10 text-primary' : 'border-input bg-transparent hover:bg-accent hover:text-accent-foreground'}`}
+                      >
+                        <Store size={14} className="mr-2" /> Pickup
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                
+              }
 
               <div className="space-y-2">
                 <label className="text-sm font-medium leading-none">Segments</label>
                 <div className="grid grid-cols-2 gap-2">
-                    {PREDEFINED_SEGMENTS.map(seg => (
+                    {CustomerSegment?.map(seg => (
                         <label key={seg} className="flex items-center space-x-2 rounded-md border p-2 hover:bg-accent hover:text-accent-foreground cursor-pointer">
                             <input 
                                 type="checkbox" 
@@ -844,13 +857,15 @@ const Customers: React.FC = () => {
             </div>
 
             <div className="flex justify-end gap-3 mt-4">
-              <button 
+              <button
+                disabled={isSubmitting} 
                 onClick={() => setShowAddCustomerModal(false)}
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
               >
                 Cancel
               </button>
-              <button 
+              <button
+                disabled={isSubmitting}
                 onClick={handleSaveCustomer}
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
               >
@@ -865,3 +880,80 @@ const Customers: React.FC = () => {
 };
 
 export default Customers;
+
+
+export function CustomerTableSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <table className="w-full caption-bottom text-sm">
+      <thead className="[&_tr]:border-b">
+        <tr>
+          <th className="h-12 px-4 text-left">Customer</th>
+          <th className="h-12 px-4 text-left">Status & Grade</th>
+          <th className="h-12 px-4 text-left">Type & Segments</th>
+          <th className="h-12 px-4 text-left">Contact</th>
+          <th className="h-12 px-4 text-left">Orders</th>
+          <th className="h-12 px-4 text-right">Quick Actions</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        {Array.from({ length: rows }).map((_, i) => (
+          <tr key={i} className="border-b">
+            {/* Customer */}
+            <td className="p-4">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </td>
+
+            {/* Status & Grade */}
+            <td className="p-4">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-5 w-20 rounded-full" />
+                <Skeleton className="h-4 w-16 rounded-full" />
+              </div>
+            </td>
+
+            {/* Type & Segments */}
+            <td className="p-4">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-5 w-24 rounded-full" />
+                <div className="flex gap-1">
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-4 w-10" />
+                </div>
+              </div>
+            </td>
+
+            {/* Contact */}
+            <td className="p-4">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-36" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </td>
+
+            {/* Orders */}
+            <td className="p-4">
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </td>
+
+            {/* Actions */}
+            <td className="p-4">
+              <div className="flex justify-end gap-2">
+                <Skeleton className="h-8 w-8 rounded-md" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+                <Skeleton className="h-8 w-8 rounded-md" />
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}

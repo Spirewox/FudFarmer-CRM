@@ -4,69 +4,82 @@ import { Enquiry } from '../types';
 import { StorageService } from '../services/storageService';
 import { GeminiService } from '../services/geminiService';
 import { Mail, Plus, Wand2, Copy, CheckCircle2, Clock, XCircle, ChevronRight, User } from 'lucide-react';
+import { useEnquiryList } from '@/hooks/useEnquiryQueries';
+import { toast } from 'react-toastify';
+import { IEnquiry, ValidEnquiryStatus } from '@/interface/enquiry.interface';
+import { axiosPatch, axiosPost } from '@/lib/api';
 
 const Enquiries: React.FC = () => {
   const [enquiries, setEnquiries] = useState<Enquiry[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedEnquiry, setSelectedEnquiry] = useState<Enquiry | null>(null);
+  const [selectedEnquiry, setSelectedEnquiry] = useState<IEnquiry | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false)
   
   // New Enquiry Form State
-  const [newEnquiry, setNewEnquiry] = useState<Partial<Enquiry>>({
-    date: new Date().toISOString().split('T')[0],
+  const [newEnquiry, setNewEnquiry] = useState<Partial<IEnquiry>>({
+    date: new Date(),
   });
 
   // Resolution State
   const [resolution, setResolution] = useState('');
   const [generating, setGenerating] = useState(false);
 
+  const {data : enquiryList, isLoading : enquiryLoading, refetch : refetchEnquiry} = useEnquiryList()
+  console.log(enquiryList)
+
   useEffect(() => {
     setEnquiries(StorageService.getEnquiries());
   }, []);
 
-  const handleSaveNew = () => {
-    if (!newEnquiry.customerName || !newEnquiry.message) return;
+  const handleSaveNew = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!newEnquiry.customer_name || !newEnquiry.message) return;
 
-    const enquiry: Enquiry = {
-      id: StorageService.generateId(),
-      customerName: newEnquiry.customerName,
-      email: newEnquiry.email || '',
-      subject: newEnquiry.subject || 'General Enquiry',
-      message: newEnquiry.message,
-      date: newEnquiry.date || new Date().toISOString().split('T')[0],
-      status: 'Open',
-    };
+      const enquiry: IEnquiry = {
+        customer_name: newEnquiry.customer_name,
+        customer_email: newEnquiry.customer_email || '',
+        subject: newEnquiry.subject || 'General Enquiry',
+        message: newEnquiry.message,
+        date : newEnquiry.date
+      };
 
-    const updated = [enquiry, ...enquiries];
-    setEnquiries(updated);
-    StorageService.saveEnquiries(updated);
-    setShowAddModal(false);
-    setNewEnquiry({ date: new Date().toISOString().split('T')[0] });
+      await axiosPost('enquiries',enquiry,true)
+      refetchEnquiry()
+      setShowAddModal(false);
+      setNewEnquiry({ date: new Date() });
+    } catch (error) {
+      toast.error(error)
+    }finally{
+      setIsSubmitting(false)
+    }
   };
 
-  const handleResolve = () => {
-    if (!selectedEnquiry || !resolution) return;
+  const handleResolve = async() => {
+    try {
+      setIsSubmitting(true)
+      if (!selectedEnquiry || !resolution) return;
 
-    const updated = enquiries.map(e => 
-      e.id === selectedEnquiry.id 
-        ? { ...e, status: 'Closed' as const, resolution: resolution } 
-        : e
-    );
-
-    setEnquiries(updated);
-    StorageService.saveEnquiries(updated);
-    setSelectedEnquiry(null);
-    setResolution('');
+      await axiosPatch(`enquiries/${selectedEnquiry._id}/resolve`,{resolution},true)
+      refetchEnquiry()
+      setSelectedEnquiry(null);
+      setResolution('');
+    } catch (error) {
+      toast.error(error.message)
+    }finally{
+      setIsSubmitting(false)
+    }
   };
 
   const handleGenerateResponse = async () => {
     if (!selectedEnquiry) return;
     setGenerating(true);
-    const response = await GeminiService.draftResponse(selectedEnquiry.customerName, selectedEnquiry.message);
+    const response = await GeminiService.draftResponse(selectedEnquiry.customer_name, selectedEnquiry.message);
     setResolution(response);
     setGenerating(false);
   };
 
-  const openResolveModal = (enquiry: Enquiry) => {
+  const openResolveModal = (enquiry: IEnquiry) => {
     setSelectedEnquiry(enquiry);
     setResolution(enquiry.resolution || '');
   };
@@ -99,17 +112,17 @@ const Enquiries: React.FC = () => {
               </tr>
             </thead>
             <tbody className="[&_tr:last-child]:border-0">
-              {enquiries.map((enq) => (
+              {enquiryList?.data?.map((enq) => (
                 <tr 
-                  key={enq.id} 
+                  key={enq._id} 
                   className="border-b transition-colors hover:bg-muted/50 cursor-pointer"
                   onClick={() => openResolveModal(enq)}
                 >
-                  <td className="p-4 align-middle whitespace-nowrap text-muted-foreground text-xs">{enq.date}</td>
+                  <td className="p-4 align-middle whitespace-nowrap text-muted-foreground text-xs">{new Date(enq.date).toLocaleString()}</td>
                   <td className="p-4 align-middle font-medium">
                     <div className="flex flex-col">
-                        <span>{enq.customerName}</span>
-                        <span className="text-xs text-muted-foreground font-normal">{enq.email}</span>
+                        <span>{enq.customer_name}</span>
+                        <span className="text-xs text-muted-foreground font-normal">{enq.customer_email}</span>
                     </div>
                   </td>
                   <td className="p-4 align-middle max-w-[300px]">
@@ -120,9 +133,9 @@ const Enquiries: React.FC = () => {
                   </td>
                   <td className="p-4 align-middle">
                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                        enq.status === 'Closed' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'
+                        enq.status === ValidEnquiryStatus.closed ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'
                      }`}>
-                        {enq.status === 'Closed' ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
+                        {enq.status === ValidEnquiryStatus.closed ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
                         {enq.status}
                      </span>
                   </td>
@@ -155,8 +168,8 @@ const Enquiries: React.FC = () => {
                         <label className="text-sm font-medium leading-none">Customer Name</label>
                         <input
                             type="text"
-                            value={newEnquiry.customerName || ''}
-                            onChange={(e) => setNewEnquiry({...newEnquiry, customerName: e.target.value})}
+                            value={newEnquiry.customer_name || ''}
+                            onChange={(e) => setNewEnquiry({...newEnquiry, customer_name: e.target.value})}
                             className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                     </div>
@@ -164,8 +177,8 @@ const Enquiries: React.FC = () => {
                         <label className="text-sm font-medium leading-none">Date</label>
                         <input
                             type="date"
-                            value={newEnquiry.date || ''}
-                            onChange={(e) => setNewEnquiry({...newEnquiry, date: e.target.value})}
+                            value={new Date(newEnquiry.date).toISOString() || ''}
+                            onChange={(e) => setNewEnquiry({...newEnquiry, date: new Date(e.target.value)})}
                             className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
                     </div>
@@ -174,8 +187,8 @@ const Enquiries: React.FC = () => {
                     <label className="text-sm font-medium leading-none">Email / Contact (Optional)</label>
                     <input
                         type="text"
-                        value={newEnquiry.email || ''}
-                        onChange={(e) => setNewEnquiry({...newEnquiry, email: e.target.value})}
+                        value={newEnquiry.customer_email || ''}
+                        onChange={(e) => setNewEnquiry({...newEnquiry, customer_email: e.target.value})}
                         className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
                 </div>
@@ -198,8 +211,8 @@ const Enquiries: React.FC = () => {
                     />
                 </div>
                 <div className="flex justify-end pt-2 gap-3">
-                    <button onClick={() => setShowAddModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
-                    <button onClick={handleSaveNew} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Enquiry</button>
+                    <button disabled={isSubmitting} onClick={() => setShowAddModal(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors border border-input bg-transparent hover:bg-accent h-9 px-4 py-2">Cancel</button>
+                    <button disabled={isSubmitting} onClick={handleSaveNew} className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 px-4 py-2">Save Enquiry</button>
                 </div>
              </div>
           </div>
@@ -214,17 +227,17 @@ const Enquiries: React.FC = () => {
                     <div>
                          <div className="flex items-center gap-2 mb-1">
                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                selectedEnquiry.status === 'Closed' ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'
+                                selectedEnquiry.status === ValidEnquiryStatus.closed ? 'bg-gray-100 text-gray-800' : 'bg-blue-100 text-blue-800'
                              }`}>
-                                {selectedEnquiry.status === 'Closed' ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
+                                {selectedEnquiry.status === ValidEnquiryStatus.closed ? <CheckCircle2 size={12}/> : <Clock size={12}/>}
                                 {selectedEnquiry.status}
                              </span>
-                             <span className="text-sm text-muted-foreground">{selectedEnquiry.date}</span>
+                             <span className="text-sm text-muted-foreground">{new Date(selectedEnquiry.date).toLocaleString()}</span>
                         </div>
                         <h2 className="text-xl font-bold tracking-tight">{selectedEnquiry.subject}</h2>
                         <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-                            <User size={14} /> {selectedEnquiry.customerName}
-                            {selectedEnquiry.email && <span className="text-xs">({selectedEnquiry.email})</span>}
+                            <User size={14} /> {selectedEnquiry.customer_name}
+                            {selectedEnquiry.customer_email && <span className="text-xs">({selectedEnquiry.customer_email})</span>}
                         </div>
                     </div>
                     <button onClick={() => setSelectedEnquiry(null)} className="text-muted-foreground hover:text-foreground"><XCircle size={24}/></button>
@@ -243,17 +256,17 @@ const Enquiries: React.FC = () => {
                             Resolution
                         </label>
                         
-                        {selectedEnquiry.status === 'Open' ? (
+                        {selectedEnquiry.status === ValidEnquiryStatus.open ? (
                             <div className="bg-card border rounded-lg p-4 space-y-4 shadow-sm">
                                 <div className="flex justify-between items-center">
                                     <p className="text-sm text-muted-foreground">How was this handled?</p>
-                                    <button 
+                                    {/* <button 
                                         onClick={handleGenerateResponse}
                                         disabled={generating}
                                         className="inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground h-7 px-3"
                                     >
                                         <Wand2 size={12} className="mr-2" /> {generating ? 'Thinking...' : 'Generate AI Response'}
-                                    </button>
+                                    </button> */}
                                 </div>
                                 <textarea
                                     value={resolution}
