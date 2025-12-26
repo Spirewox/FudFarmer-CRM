@@ -66,10 +66,10 @@ const Dashboard: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { title: "Total Customers", value: dashmet?.totalCustomers, icon: <Users className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Active Leads", value: dashmet?.activeLeads, icon: <TrendingUp className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Pipeline Value", value: `₦${dashmet?.pipelineValue?.toLocaleString()}`, icon: <Wallet className="h-4 w-4 text-muted-foreground" /> },
-          { title: "Open Complaints", value: dashmet?.openComplaints, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Total Customers", value: dashmet?.totalCustomers || 0, icon: <Users className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Active Leads", value: dashmet?.activeLeads || 0, icon: <TrendingUp className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Pipeline Value", value: `₦${dashmet?.pipelineValue?.toLocaleString() || 0}`, icon: <Wallet className="h-4 w-4 text-muted-foreground" /> },
+          { title: "Open Complaints", value: dashmet?.openComplaints || 0, icon: <AlertTriangle className="h-4 w-4 text-muted-foreground" /> },
         ].map((item, idx) => (
           <div key={idx} className="rounded-xl border bg-card text-card-foreground shadow-sm">
             <div className="p-6 flex flex-row items-center justify-between space-y-0 pb-2">
