@@ -47,13 +47,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if(isError){
       setLoading(false)
     }
-  }, [user,navigate,isError]);
+  }, [user,isError]);
 
 
   const login = async (user :  IUser) => {
     setLocalUser(user)
     await refetch()
-    navigate(prevState ? prevState : "/")
+    navigate(prevState ?? "/", { replace: true });
   };
 
   const logout = async () => {

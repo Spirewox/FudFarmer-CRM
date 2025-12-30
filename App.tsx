@@ -15,8 +15,11 @@ import { ToastContainer } from 'react-toastify';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { isAuthenticated , loading} = useAuth();
+    if (loading) {
+      return null; // or a spinner
+    }
     if (!isAuthenticated && !loading) {
-        return <Navigate to="/login" replace />;
+      return <Navigate to="/login" replace />;
     }
     return <>{children}</>;
 };
