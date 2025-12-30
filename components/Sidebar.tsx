@@ -81,10 +81,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, toggleSidebar }) => {
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-3">
                     <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
-                        {user?.name?.charAt(0) || 'U'}
+                        {user?.full_name?.charAt(0) || 'U'}
                     </div>
                     <div className="flex flex-col">
-                        <p className="text-sm font-medium leading-none truncate max-w-[100px]">{user?.name || 'User'}</p>
+                        <p className="text-sm font-medium leading-none truncate max-w-[100px]">{user?.full_name || 'User'}</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">{user?.role} • {user?.location}</p>
                     </div>
                 </div>
