@@ -81,7 +81,7 @@ const Customers: React.FC = () => {
     } catch (error) {
       toast.error(error.message)
     }finally{
-      setIsSubmitting(true)
+      setIsSubmitting(false)
     }
 
   };
