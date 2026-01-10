@@ -1,8 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { Location, PREDEFINED_SEGMENTS, Feedback, Enquiry, Compensation, FeedbackType, Agent } from '../types';
-import { StorageService } from '../services/storageService';
+import { Location,} from '../types';
 import { Plus, Search, MapPin, Building2, User, Award, Crown, Zap, X, MessageSquare, Mail, RefreshCw, Calendar, Phone, DollarSign, Filter, ShoppingBag, MessageSquarePlus, FileQuestion, MoreHorizontal, Package, Truck, Store, Copy, Check, Briefcase } from 'lucide-react';
 import { CustomerOverview, useCustomerLocations, useCustomerOverview } from '@/hooks/useCustomers';
 import { CustomerSegment, CustomerSegmentType, ICustomer, ValidCustomerType } from '@/interface/customer.interface';
@@ -14,6 +13,7 @@ import { useAuth, ValidUserRole } from '@/contexts/AuthContext';
 import { axiosPost } from '@/lib/api';
 import { ValidOrderType } from '@/interface/order.interface';
 import { IEnquiry } from '@/interface/enquiry.interface';
+import { Pagination } from './ui/Pagination';
 
 const Customers: React.FC = () => {
   const {user} = useAuth()
@@ -48,6 +48,9 @@ const Customers: React.FC = () => {
   const [enquirySubject, setEnquirySubject] = useState('');
   const [enquiryMessage, setEnquiryMessage] = useState('');
   const [isSubmitting,setIsSubmitting] = useState(false)
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, filterLocation, filterType]);
   const {data : customerDatas, isLoading : customerDataLoading, refetch : refetchCustomerData} = useCustomerOverview({
     limit,
     page,
@@ -57,8 +60,8 @@ const Customers: React.FC = () => {
   })
   const {data : locations} = useCustomerLocations()
   const {data : users} = useUsers({
-    limit : 20,
-    page : 1,
+    limit,
+    page,
     search : agentSearch
   })
 
@@ -74,6 +77,7 @@ const Customers: React.FC = () => {
     try {
       setIsSubmitting(true)
       if (!newCustomer.customer_name || !newCustomer.customer_phone) return;
+      console.log(newCustomer)
       await axiosPost('customers',newCustomer,true)
       refetchCustomerData()
       setShowAddCustomerModal(false);
@@ -285,112 +289,120 @@ const Customers: React.FC = () => {
         <div className="relative w-full overflow-auto">
           {
             customerDataLoading ? <CustomerTableSkeleton/> : (
-            <table className="w-full caption-bottom text-sm">
-              <thead className="[&_tr]:border-b">
-                <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
-                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Customer</th>
-                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status & Grade</th>
-                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Type & Segments</th>
-                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Contact</th>
-                  <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Orders</th>
-                  <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Quick Actions</th>
-                </tr>
-              </thead>
-              <tbody className="[&_tr:last-child]:border-0">
-                {customerDatas?.data?.map((customer) => {
-                  const status = getStatus(customer);
-                  const grade = getGrade(customer);
+              <div>
+                <table className="w-full caption-bottom text-sm">
+                  <thead className="[&_tr]:border-b">
+                    <tr className="border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted">
+                      <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Customer</th>
+                      <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Status & Grade</th>
+                      <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Type & Segments</th>
+                      <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Contact</th>
+                      <th className="h-12 px-4 text-left align-middle font-medium text-muted-foreground">Orders</th>
+                      <th className="h-12 px-4 text-right align-middle font-medium text-muted-foreground">Quick Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="[&_tr:last-child]:border-0">
+                    {customerDatas?.data?.map((customer) => {
+                      const status = getStatus(customer);
+                      const grade = getGrade(customer);
 
-                  return (
-                      <tr 
-                        key={customer._id} 
-                        onClick={() => handleViewDetails(customer)}
-                        className="border-b transition-colors hover:bg-muted/50 cursor-pointer group"
-                      >
-                      <td className="p-4 align-middle">
-                          <div className="flex flex-col">
-                          <span className="font-medium">{customer.customer_name}</span>
-                          {customer.company_name && (
-                              <span className="text-xs text-muted-foreground">{customer.company_name}</span>
-                          )}
-                          </div>
-                      </td>
-                      <td className="p-4 align-middle">
-                          <div className="flex flex-col gap-1 items-start">
-                              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status === 'Repeat' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                                  {status === 'Repeat' ? <Zap size={10} fill="currentColor"/> : <Plus size={10}/>}
-                                  {status}
-                              </span>
-                              {getGradeBadge(grade)}
-                          </div>
-                      </td>
-                      <td className="p-4 align-middle">
-                          <div className="flex flex-col gap-2">
-                              <span className={`inline-flex items-center gap-1 w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors uppercase ${customer.customer_type === ValidCustomerType.b2b ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
-                              {customer.customer_type === ValidCustomerType.b2b ? <Building2 size={12}/> : <User size={12}/>}
-                              {customer.customer_type}
-                              </span>
-                              <div className="flex flex-wrap gap-1">
-                                {customer.segments?.map(seg => (
-                                    <span key={seg} className="inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                        {seg}
-                                    </span>
-                                ))}
+                      return (
+                          <tr 
+                            key={customer._id} 
+                            onClick={() => handleViewDetails(customer)}
+                            className="border-b transition-colors hover:bg-muted/50 cursor-pointer group"
+                          >
+                          <td className="p-4 align-middle">
+                              <div className="flex flex-col">
+                              <span className="font-medium">{customer.customer_name}</span>
+                              {customer.company_name && (
+                                  <span className="text-xs text-muted-foreground">{customer.company_name}</span>
+                              )}
                               </div>
-                          </div>
-                      </td>
-                      <td className="p-4 align-middle">
-                          <div className="flex flex-col text-sm text-muted-foreground">
-                          <span>{customer.customer_email}</span>
-                          <span>{customer.customer_phone}</span>
-                          <span className="inline-flex items-center gap-1 text-xs mt-1">
-                              <MapPin size={10} /> {customer.customer_location}
-                          </span>
-                          </div>
-                      </td>
-                      <td className="p-4 align-middle">
-                          <div className="flex flex-col">
-                              <span className="font-medium">{customer.total_orders} orders</span>
-                              <span className="text-xs text-muted-foreground">₦{customer.total_order_cost.toLocaleString()}</span>
-                          </div>
-                      </td>
-                      <td className="p-4 align-middle text-right">
-                          <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                  onClick={(e) => openOrderModal(e, customer)}
-                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                  title="Add New Order"
-                              >
-                                  <ShoppingBag size={14} />
-                              </button>
-                              <button 
-                                  onClick={(e) => openFeedbackModal(e, customer)}
-                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                  title="Log Feedback"
-                              >
-                                  <MessageSquarePlus size={14} />
-                              </button>
-                              <button 
-                                  onClick={(e) => openEnquiryModal(e, customer)}
-                                  className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
-                                  title="Log Enquiry"
-                              >
-                                  <FileQuestion size={14} />
-                              </button>
-                          </div>
-                      </td>
+                          </td>
+                          <td className="p-4 align-middle">
+                              <div className="flex flex-col gap-1 items-start">
+                                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${status === 'Repeat' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                                      {status === 'Repeat' ? <Zap size={10} fill="currentColor"/> : <Plus size={10}/>}
+                                      {status}
+                                  </span>
+                                  {getGradeBadge(grade)}
+                              </div>
+                          </td>
+                          <td className="p-4 align-middle">
+                              <div className="flex flex-col gap-2">
+                                  <span className={`inline-flex items-center gap-1 w-fit rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors uppercase ${customer.customer_type === ValidCustomerType.b2b ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
+                                  {customer.customer_type === ValidCustomerType.b2b ? <Building2 size={12}/> : <User size={12}/>}
+                                  {customer.customer_type}
+                                  </span>
+                                  <div className="flex flex-wrap gap-1">
+                                    {customer.segments?.map(seg => (
+                                        <span key={seg} className="inline-flex items-center rounded-sm border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                            {seg}
+                                        </span>
+                                    ))}
+                                  </div>
+                              </div>
+                          </td>
+                          <td className="p-4 align-middle">
+                              <div className="flex flex-col text-sm text-muted-foreground">
+                              <span>{customer.customer_email}</span>
+                              <span>{customer.customer_phone}</span>
+                              <span className="inline-flex items-center gap-1 text-xs mt-1">
+                                  <MapPin size={10} /> {customer.customer_location}
+                              </span>
+                              </div>
+                          </td>
+                          <td className="p-4 align-middle">
+                              <div className="flex flex-col">
+                                  <span className="font-medium">{customer.total_orders} orders</span>
+                                  <span className="text-xs text-muted-foreground">₦{customer.total_order_cost.toLocaleString()}</span>
+                              </div>
+                          </td>
+                          <td className="p-4 align-middle text-right">
+                              <div className="flex justify-end gap-1 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button 
+                                      onClick={(e) => openOrderModal(e, customer)}
+                                      className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                      title="Add New Order"
+                                  >
+                                      <ShoppingBag size={14} />
+                                  </button>
+                                  <button 
+                                      onClick={(e) => openFeedbackModal(e, customer)}
+                                      className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                      title="Log Feedback"
+                                  >
+                                      <MessageSquarePlus size={14} />
+                                  </button>
+                                  <button 
+                                      onClick={(e) => openEnquiryModal(e, customer)}
+                                      className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                      title="Log Enquiry"
+                                  >
+                                      <FileQuestion size={14} />
+                                  </button>
+                              </div>
+                          </td>
+                          </tr>
+                      );
+                    })}
+                    {customerDatas?.data?.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="p-4 align-middle text-center text-muted-foreground">
+                          No customers found matching your filters.
+                        </td>
                       </tr>
-                  );
-                })}
-                {customerDatas?.data?.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="p-4 align-middle text-center text-muted-foreground">
-                      No customers found matching your filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>)
+                    )}
+                  </tbody>
+                </table>
+                <Pagination page={customerDatas?.meta?.page} totalPages={customerDatas?.meta?.totalPages} onPageChange={(newPage) => {
+            if (newPage < 1) return;
+            setPage(newPage);
+          }} />
+              </div>
+            
+            )
           }
           
         </div>
@@ -785,7 +797,9 @@ const Customers: React.FC = () => {
                 <select 
                   className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   value={newCustomer.assigned_agent || ''} 
-                  onChange={e => setNewCustomer({...newCustomer, assigned_agent: e.target.value})}
+                  onChange={e => {
+                    console.log(e.target.value)
+                    setNewCustomer({...newCustomer, assigned_agent: e.target.value})}}
                 >
                   <option value="">-- Select Agent --</option>
                   {users?.users?.map(a => <option key={a._id} value={a._id}>{a.full_name}</option>)}
