@@ -64,6 +64,7 @@ const Customers: React.FC = () => {
 
 
   const [newCustomer, setNewCustomer] = useState<Partial<ICustomer>>({
+    customer_name : "",
     customer_type: ValidCustomerType.b2b,
     customer_location: Location.LAGOS,
     segments: [],
@@ -76,7 +77,7 @@ const Customers: React.FC = () => {
       await axiosPost('customers',newCustomer,true)
       refetchCustomerData()
       setShowAddCustomerModal(false);
-      setNewCustomer({ customer_type: ValidCustomerType.b2b, segments: [],customer_location: Location.LAGOS,});
+      setNewCustomer({ customer_type: ValidCustomerType.b2b, segments: [],customer_location: Location.LAGOS, });
       toast.success("New customer added successfully")
     } catch (error) {
       toast.error(error.message)

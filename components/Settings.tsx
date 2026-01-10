@@ -72,7 +72,7 @@ const Settings: React.FC = () => {
     setLoading(true);
     try {
 
-        await axiosPost('auth/reset-password',{currentPassword, newPassword})
+        await axiosPost('auth/reset-password',{currentPassword, newPassword},true)
       setMessage('Password changed successfully!');
       setNewPassword('');
       setConfirmPassword('');
