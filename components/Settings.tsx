@@ -72,10 +72,10 @@ const Settings: React.FC = () => {
     setLoading(true);
     try {
 
-        await axiosPost('auth/reset-password',{currentPassword, newPassword},true)
+    await axiosPost('auth/reset-password',{currentPassword, newPassword},true)
       setMessage('Password changed successfully!');
       logout()
-      toast.error("Password changed successfully! Please log in again.")
+      toast.success("Password changed successfully! Please log in again.")
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => setMessage(''), 3000);
