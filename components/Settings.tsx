@@ -9,7 +9,7 @@ import { axiosDelete, axiosPost } from '@/lib/api';
 import { toast } from 'react-toastify';
 
 const Settings: React.FC = () => {
-  const { user } = useAuth();
+  const { user,logout } = useAuth();
   
   // Tab State
   const [activeTab, setActiveTab] = useState<'Profile' | 'Users' | 'Preferences' | 'Data'>('Profile');
@@ -74,6 +74,8 @@ const Settings: React.FC = () => {
 
         await axiosPost('auth/reset-password',{currentPassword, newPassword},true)
       setMessage('Password changed successfully!');
+      logout()
+      toast.error("Password changed successfully! Please log in again.")
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => setMessage(''), 3000);
