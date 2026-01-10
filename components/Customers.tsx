@@ -72,7 +72,7 @@ const Customers: React.FC = () => {
   const handleSaveCustomer = async() => {
     try {
       setIsSubmitting(true)
-      if (!newCustomer.customer_name || !newCustomer.customer_email) return;
+      if (!newCustomer.customer_name || !newCustomer.customer_phone) return;
       await axiosPost('customers',newCustomer,true)
       refetchCustomerData()
       setShowAddCustomerModal(false);
