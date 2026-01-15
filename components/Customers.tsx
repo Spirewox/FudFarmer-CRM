@@ -1,16 +1,14 @@
-
-
 import React, { useState, useEffect } from 'react';
 import { Location,} from '../types';
-import { Plus, Search, MapPin, Building2, User, Award, Crown, Zap, X, MessageSquare, Mail, RefreshCw, Calendar, Phone, DollarSign, Filter, ShoppingBag, MessageSquarePlus, FileQuestion, MoreHorizontal, Package, Truck, Store, Copy, Check, Briefcase } from 'lucide-react';
+import { Plus, Search, MapPin, Building2, User, Award, Crown, Zap, X, MessageSquare, Mail, RefreshCw, Calendar, Phone, DollarSign, Filter, ShoppingBag, MessageSquarePlus, FileQuestion, Package, Truck, Store, Copy, Check, Briefcase } from 'lucide-react';
 import { CustomerOverview, useCustomerLocations, useCustomerOverview } from '@/hooks/useCustomers';
 import { CustomerSegment, CustomerSegmentType, ICustomer, ValidCustomerType } from '@/interface/customer.interface';
-import { IFeedback, ValidFeedBackSentiment, ValidFeedbackTypes } from '@/interface/feedback.interface';
+import { IFeedback, ValidFeedbackTypes } from '@/interface/feedback.interface';
 import { Skeleton } from './ui/Skeleton';
 import { useUsers } from '@/hooks/useQueries';
 import { toast } from 'react-toastify';
 import { useAuth, ValidUserRole } from '@/contexts/AuthContext';
-import { axiosPost } from '@/lib/api';
+import { axiosPatch, axiosPost } from '@/lib/api';
 import { ValidOrderType } from '@/interface/order.interface';
 import { IEnquiry } from '@/interface/enquiry.interface';
 import { Pagination } from './ui/Pagination';
@@ -23,6 +21,9 @@ const Customers: React.FC = () => {
   // Filter State
   const [filterType, setFilterType] = useState<ValidCustomerType | 'All'>('All');
   const [filterLocation, setFilterLocation] = useState<string | 'All'>('All');
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
+  const [originalCustomer, setOriginalCustomer] = useState<Partial<ICustomer> | null>(null);
   
   // Detail View State
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerOverview | null>(null);
@@ -73,23 +74,67 @@ const Customers: React.FC = () => {
     segments: [],
   });
 
-  const handleSaveCustomer = async() => {
-    try {
-      setIsSubmitting(true)
-      if (!newCustomer.customer_name || !newCustomer.customer_phone) return;
-      console.log(newCustomer)
-      await axiosPost('customers',newCustomer,true)
-      refetchCustomerData()
-      setShowAddCustomerModal(false);
-      setNewCustomer({ customer_type: ValidCustomerType.b2b, segments: [],customer_location: Location.LAGOS, });
-      toast.success("New customer added successfully")
-    } catch (error) {
-      toast.error(error.message)
-    }finally{
-      setIsSubmitting(false)
-    }
+  const openEditCustomer = (customer: CustomerOverview) => {
+    const snapshot = {
+      customer_name: customer.customer_name,
+      customer_email: customer.customer_email,
+      customer_phone: customer.customer_phone,
+      customer_type: customer.customer_type,
+      customer_location: customer.customer_location,
+      company_name: customer.company_name,
+      segments: customer.segments || [],
+      assigned_agent: customer.assigned_agent,
+    };
 
+    setIsEditing(true);
+    setEditingCustomerId(customer._id);
+    setOriginalCustomer(snapshot);
+    setNewCustomer(snapshot);
+    setShowAddCustomerModal(true);
   };
+
+  const resetCustomerForm = () => {
+    setIsEditing(false);
+    setEditingCustomerId(null);
+    setOriginalCustomer(null);
+    setNewCustomer({
+      customer_type: ValidCustomerType.b2b,
+      segments: [],
+      customer_location: Location.LAGOS,
+    });
+  };
+
+
+  const handleSaveCustomer = async () => {
+    try {
+      setIsSubmitting(true);
+
+      if (!newCustomer.customer_name) return;
+
+      if (isEditing && editingCustomerId) {
+        const changes = getChangedFields();
+
+        if (Object.keys(changes).length === 0) return;
+
+        await axiosPatch(`customers/${editingCustomerId}`, changes, true);
+        toast.success("Customer updated successfully");
+      } else {
+        // CREATE
+        await axiosPost('customers', newCustomer, true);
+        toast.success("New customer added successfully");
+      }
+
+      refetchCustomerData();
+      setShowAddCustomerModal(false);
+      resetCustomerForm();
+
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
 
   const toggleSegment = (segment: CustomerSegmentType) => {
     setNewCustomer((prev) => {
@@ -230,7 +275,30 @@ const Customers: React.FC = () => {
     }
   };
 
+  const hasChanges = React.useMemo(() => {
+    if (!isEditing || !originalCustomer) return true;
 
+    return Object.keys(newCustomer).some((key) => {
+      return JSON.stringify(newCustomer[key]) !== JSON.stringify(originalCustomer[key]);
+    });
+  }, [newCustomer, originalCustomer, isEditing]);
+
+  const getChangedFields = () => {
+    if (!originalCustomer) return newCustomer;
+
+    const changes: Partial<ICustomer> = {};
+
+    Object.keys(newCustomer).forEach((key) => {
+      if (
+        JSON.stringify(newCustomer[key]) !==
+        JSON.stringify(originalCustomer[key])
+      ) {
+        changes[key] = newCustomer[key];
+      }
+    });
+
+    return changes;
+  };
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -381,6 +449,16 @@ const Customers: React.FC = () => {
                                       title="Log Enquiry"
                                   >
                                       <FileQuestion size={14} />
+                                  </button>
+                                  <button 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditCustomer(customer);
+                                    }}
+                                    className="h-8 w-8 inline-flex items-center justify-center rounded-md border bg-background hover:bg-accent hover:text-accent-foreground"
+                                    title="Edit Customer"
+                                  >
+                                    <User size={14} />
                                   </button>
                               </div>
                           </td>
@@ -718,7 +796,9 @@ const Customers: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg sm:rounded-lg animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex flex-col space-y-1.5 text-center sm:text-left mb-4">
-              <h2 className="text-lg font-semibold leading-none tracking-tight">Add New Customer</h2>
+              <h2 className="text-lg font-semibold leading-none tracking-tight">
+                {isEditing ? "Edit Customer" : "Add New Customer"}
+              </h2>
               <p className="text-sm text-muted-foreground">Enter customer details below.</p>
             </div>
             
@@ -806,7 +886,7 @@ const Customers: React.FC = () => {
                 </select>
               </div>}
 
-              <div className="grid grid-cols-2 gap-4 border-t pt-4">
+              {!isEditing && <div className="grid grid-cols-2 gap-4 border-t pt-4">
                  <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">Initial Orders</label>
                     <input 
@@ -827,8 +907,7 @@ const Customers: React.FC = () => {
                         onChange={e => setNewCustomer({...newCustomer, order_amount: parseInt(e.target.value)})}
                     />
                  </div>
-              </div>
-              {
+              </div>}              {
                 (!!newCustomer.order_volume || !!newCustomer.order_volume) &&
                 <div className='border-t pt-4'>
                   <label className="text-sm font-medium">Order Type</label>
@@ -874,17 +953,20 @@ const Customers: React.FC = () => {
             <div className="flex justify-end gap-3 mt-4">
               <button
                 disabled={isSubmitting} 
-                onClick={() => setShowAddCustomerModal(false)}
+                onClick={() => {
+                  setShowAddCustomerModal(false);
+                  resetCustomerForm();
+                }}
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 border border-input bg-transparent shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2"
               >
                 Cancel
               </button>
               <button
-                disabled={isSubmitting}
+                disabled={isSubmitting || (isEditing && !hasChanges)}
                 onClick={handleSaveCustomer}
                 className="inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2"
               >
-                Save Changes
+                {isEditing ? "Update Customer" : "Save Customer"}
               </button>
             </div>
           </div>

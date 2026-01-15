@@ -15,6 +15,7 @@ export interface CustomerOverview {
   customer_email: string;
   customer_location: string;
   segments: CustomerSegmentType[];
+  assigned_agent : string;
   added_by : string;
   createdAt : Date
 
