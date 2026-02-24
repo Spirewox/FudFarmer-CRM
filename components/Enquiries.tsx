@@ -177,7 +177,11 @@ const Enquiries: React.FC = () => {
                         <label className="text-sm font-medium leading-none">Date</label>
                         <input
                             type="date"
-                            value={new Date(newEnquiry.date).toISOString() || ''}
+                            value={
+                              newEnquiry.date
+                                ? new Date(newEnquiry.date).toISOString().split("T")[0]
+                                : ""
+                            }
                             onChange={(e) => setNewEnquiry({...newEnquiry, date: new Date(e.target.value)})}
                             className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         />
