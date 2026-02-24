@@ -2,16 +2,18 @@
 import React, { useState, useEffect } from 'react';
 import { Compensation, CompensationCategory } from '../types';
 import { StorageService } from '../services/storageService';
-import { RefreshCw, CheckCircle, Clock, Plus, Tag, Gift, ShoppingBag, Ticket, Banknote, User } from 'lucide-react';
+import { RefreshCw, CheckCircle, Clock, Plus, Tag, Gift, ShoppingBag, Ticket, Banknote, User, Search } from 'lucide-react';
 import { ICompensation, ValidCompensationStatus, ValidCompensationType } from '@/interface/compensation.interface';
 import { axiosPatch, axiosPost } from '@/lib/api';
 import { toast } from 'react-toastify';
 import { useCompensationList } from '@/hooks/useCompensationQueries';
 import { useCustomerList } from '@/hooks/useCustomers';
 import { ICustomer } from '@/interface/customer.interface';
+import { Pagination } from './ui/Pagination';
 
 const Compensations: React.FC = () => {
   const [showModal, setShowModal] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [newComp, setNewComp] = useState<Partial<ICompensation>>({ 
     status: ValidCompensationStatus.pending,
     category: ValidCompensationType.product
@@ -19,8 +21,14 @@ const Compensations: React.FC = () => {
   const [mode, setMode] = useState<'create' | 'status'>('create');
   const [selectedComp, setSelectedComp] = useState<ICompensation | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [page, setPage] = useState(1)
+  const limit = 100
 
-  const {data : compensationList, isLoading : compListLoading, refetch : refetchCompList} = useCompensationList()
+  useEffect(() => {
+      setPage(1);
+    }, [searchTerm]);
+
+  const {data : compensationList, isLoading : compListLoading, refetch : refetchCompList} = useCompensationList({search : searchTerm,page,limit})
 
   const {data : customerList} = useCustomerList({
     customer_location  : ""
@@ -89,6 +97,17 @@ const handleSave = async () => {
         </button>
       </div>
 
+      <div className="relative w-full sm:max-w-xs">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <input 
+          type="text"
+          placeholder="Search compensations..."
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 pl-9 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+      </div>
+
       <div className="rounded-md border bg-card text-card-foreground shadow-sm">
         <div className="relative w-full overflow-auto">
             <table className="w-full caption-bottom text-sm">
@@ -142,6 +161,10 @@ const handleSave = async () => {
                 )}
             </tbody>
             </table>
+            <Pagination page={compensationList?.meta?.page} totalPages={compensationList?.meta?.totalPages} onPageChange={(newPage) => {
+              if (newPage < 1) return;
+              setPage(newPage);
+            }} />
         </div>
       </div>
 
